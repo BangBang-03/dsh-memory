@@ -1,0 +1,16 @@
+# 依赖目录。这个包里 node_modules/@deepseek-ai 是指向 DSH 官方包的一层 junction 垫片，
+# 体积大且与本机 DSH 安装强绑定，绝不提交。
+node_modules/
+
+# 本插件在工作区生成的人读镜像（属于用户数据，不入库）
+.dsh-memory/
+
+# install.ps1 / uninstall.ps1 在改 profile 前留下的备份
+*.bak
+*.bak-*
+*.truncated-*
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db

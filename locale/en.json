@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Memory",
+    "description": "Long-term memory scoped to the current workspace: a briefing injected at session start, a memory tool for on-demand reads and writes, and end-of-turn auto distillation."
+  }
+}

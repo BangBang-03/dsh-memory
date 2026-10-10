@@ -1,0 +1,9 @@
+# Bundle layer for dsh-memory.
+#
+# Used when this package is selected as a profile bundle
+# (`dsh plugin --profile <name> add link:<path-to-this-package>`): the row below
+# inserts the plugin's Loader entry. The same row may instead be appended to the
+# profile's own cordis.patch.yml, which is what the manual install path does.
+- insert:
+    - id: dsh-memory
+      name: dsh-memory
