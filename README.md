@@ -1,5 +1,9 @@
 # dsh-memory
 
+[![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
+[![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
+[![Tests](https://img.shields.io/badge/tests-269%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条注入系统提示，模型可以随时用 `memory` 工具读写，轮次结束时（可选）
 自动提炼，全部记忆都能在 **设置 → 记忆** 里查看和管理。
@@ -74,6 +78,9 @@ pwsh -File install.ps1 -DryRun     # 先看一眼要改什么
 pwsh -File install.ps1             # 真装
 # 重启 DSH 桌面端
 ```
+
+不想 clone 也可以直接下 [Releases](https://github.com/BangBang-03/dsh-memory/releases/latest)
+里的 `Source code (zip)`，解压后同一个目录结构、同样跑 `install.ps1`。
 
 回滚：
 
