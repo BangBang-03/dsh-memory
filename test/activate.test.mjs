@@ -272,6 +272,9 @@ await test('模型工具 save / search / list / stats 走真实 store 并落盘'
 
   const stats = await tool.execute({ action: 'stats' }, exec);
   assert.match(stats.text, /本工作区 1 条/);
+  // 主库里的存储文件和人看的镜像文件是两个路径，stats 不能把前者标成「镜像文件」。
+  assert.match(stats.text, /本工作区存储：`[^`]*memories\.json`/);
+  assert.match(stats.text, /镜像文件：`[^`]*\.dsh-memory[\\/]MEMORY\.md`/);
 
   const forgotten = await tool.execute({ action: 'forget', id }, exec);
   assert.equal(forgotten.count, 1);
