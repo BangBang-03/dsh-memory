@@ -55,6 +55,7 @@ let settingsValue = {
   briefing: true,
   briefingLimit: 12,
   autoCapture: false,
+  mirror: true,
   minConfidence: 0.4,
 };
 const settings = {
@@ -401,6 +402,14 @@ async function settle(rounds = 6) {
 
 const text = () => mini.textOf(handle.tree);
 
+/* 视图分段控件：档案（默认）/ 记忆空间 / 列表。卡片只在列表视图里出现。 */
+const switchView = async (key) => {
+  const button = mini.findByText(handle.tree, makeT('zh')(key), 'button');
+  assert.ok(button, `找不到视图按钮：${key}`);
+  mini.click(button);
+  await settle(8);
+};
+
 await test('首屏渲染出三条记忆与统计', async () => {
   renderPage('zh');
   await settle();
@@ -410,7 +419,7 @@ await test('首屏渲染出三条记忆与统计', async () => {
   assert.match(body, /全局偏好/);
   // 默认范围是「全部」，所以顶部计数 = 本工作区 + 全局，和列表里的卡片数对得上。
   assert.match(body, /共 3条/);
-  // 记忆空间默认把「项目记忆 / 全局记忆」分开统计与分区，和 Qoder 的划分一致。
+  // 记忆空间把「项目记忆 / 全局记忆」分开统计与分区，和 Qoder 的划分一致；统计行三种视图都在。
   assert.match(body, /项目记忆 2/);
   assert.match(body, /全局记忆 1/);
   assert.ok(body.includes(makeT('zh')('nav')), '缺少导航标签');
@@ -425,6 +434,9 @@ await test('页面确实读了宿主 /state 与 /list', () => {
     '客户端请求没有走 /memory/api 前缀',
   );
 });
+
+/* 卡片、标签云、删除/置顶/新建按钮都只在列表视图里，下面这一组先切过去。 */
+await switchView('viewList');
 
 await test('列表带上工作区、范围与类别标签', () => {
   const body = text();
@@ -616,6 +628,7 @@ const byClass = (name) => (node) =>
 await test('记忆空间按「项目记忆 / 全局记忆」分区，组内再按标签归类', async () => {
   renderPage('zh');
   await settle(10);
+  await switchView('viewSpace');
 
   const sections = mini.findAll(view, byClass('dshmem_section'));
   assert.equal(sections.length, 2, `应该有两个分区，实际 ${sections.length} 个`);
@@ -647,6 +660,7 @@ await test('记忆空间按「项目记忆 / 全局记忆」分区，组内再�
 await test('分区与分组都能折叠', async () => {
   renderPage('zh');
   await settle(10);
+  await switchView('viewSpace');
   const spaceTitle = () =>
     mini
       .findAll(view, byClass('dshmem_groupTitle'))
@@ -677,6 +691,7 @@ await test('分区与分组都能折叠', async () => {
 await test('整合：同标签的记忆合并成一条，原条目自动归档', async () => {
   renderPage('zh');
   await settle(10);
+  await switchView('viewSpace');
 
   const group = mini
     .findAll(view, byClass('dshmem_group'))
@@ -744,6 +759,153 @@ await test('列表 / 记忆空间视图互切，范围 chip 只留一个分区',
   assert.match(mini.textOf(sections[0]), /全局记忆 1|全局记忆/);
   assert.ok(mini.textOf(sections[0]).includes('空间全局'), '全局分区里没有全局记忆');
   assert.doesNotMatch(text(), /端到端测试记忆/, '筛到全局后不该再出现项目记忆');
+});
+
+/* ---------------- 档案视图：照 WorkBuddy 的「记忆与进化」 ---------------- */
+
+/* 开关不是 checkbox，是 role="switch" 的按钮，用 data-on 表达状态。 */
+const switchNodes = () => mini.findAll(view, (node) => node.props && node.props.role === 'switch');
+
+await test('档案视图默认打开：分区小标题 + 粗体标题 + 整段正文', async () => {
+  renderPage('zh');
+  await settle(10);
+
+  const segments = mini.findAll(view, byClass('dshmem_seg_btn'));
+  assert.deepEqual(
+    segments.map((node) => mini.textOf(node)),
+    ['档案', '记忆空间', '列表'],
+    '分段控件应该是三种视图',
+  );
+  assert.ok(byClass('dshmem_seg_on')(segments[0]), '默认应该选中「档案」');
+
+  const sections = mini.findAll(view, byClass('dshmem_docSec'));
+  assert.deepEqual(sections.map((node) => mini.textOf(node)), ['项目记忆', '全局记忆']);
+
+  const titles = mini.findAll(view, byClass('dshmem_docTitle')).map((node) => mini.textOf(node));
+  assert.ok(titles.includes('插件安装方式'), `档案里缺少已有记忆：${titles.join(' | ')}`);
+  const paras = mini.findAll(view, byClass('dshmem_docPara')).map((node) => mini.textOf(node));
+  assert.ok(paras.some((para) => para.includes('cordis.patch.yml')), '档案里没有整段正文');
+
+  /* 卡片、标签云是列表/空间视图的东西，档案视图里不该出现。 */
+  assert.equal(mini.findAll(view, byClass('dshmem_card')).length, 0, '档案视图不该渲染卡片');
+  assert.equal(mini.findAll(view, byClass('dshmem_section')).length, 0, '档案视图不该渲染空间分区');
+
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('manageMemory'))));
+  for (const key of ['tidy', 'editDoc', 'importDo']) {
+    assert.ok(mini.findByText(view, makeT('zh')(key), 'button'), `缺少按钮：${key}`);
+  }
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('docAutoHint').slice(0, 10))));
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('docLocalHint').slice(0, 10))));
+  assert.match(body, /仅保存在你的设备上/);
+
+  /* 两行开关：对话记忆 → autoCapture（默认关），本地记忆与技能 → mirror（默认开）。 */
+  const switches = switchNodes();
+  assert.equal(switches.length, 2, '应该有两个开关');
+  assert.deepEqual(switches.map((node) => node.props['data-on']), ['0', '1']);
+});
+
+await test('整篇编辑：改正文、加条目，文档里消失的归档', async () => {
+  renderPage('zh');
+  await settle(10);
+
+  mini.click(mini.findByText(view, makeT('zh')('editDoc'), 'button'));
+  await settle(6);
+  const area = mini.findAllByTag(view, 'textarea').find(byClass('dshmem_area_doc'));
+  assert.ok(area, '点「编辑」没有打开整篇文本框');
+  assert.match(area.props.value, /^## 项目记忆$/m);
+  assert.match(area.props.value, /\*\*插件安装方式\*\*/);
+
+  const kept = 'package 进入 dsh.profile.bundles 后，其 cordis.patch.yml 会被自动应用。';
+  mini.type(
+    area,
+    ['## 项目记忆', '**档案新条目**', '整篇编辑写进来的正文。', '', '**插件安装方式**', kept].join('\n'),
+  );
+  await settle(6);
+  mini.click(mini.findByText(view, makeT('zh')('save'), 'button'));
+  await settle(20);
+
+  const all = store.list({ workspace: WS, includeGlobal: true, includeArchived: true }).records;
+  const fresh = all.find((record) => record.title === '档案新条目');
+  assert.ok(fresh, '整篇编辑新建的条目没进库');
+  assert.equal(fresh.content, '整篇编辑写进来的正文。');
+  assert.equal(fresh.scope, 'workspace');
+  assert.equal(fresh.archived, false);
+  assert.equal(
+    all.find((record) => record.title === '插件安装方式').archived,
+    false,
+    '文档里保留的条目不该被归档',
+  );
+  assert.equal(
+    all.find((record) => record.title === '全局偏好').archived,
+    true,
+    '文档里消失的条目应该被归档（而不是删除）',
+  );
+  assert.deepEqual(
+    all.filter((record) => !record.archived).map((record) => record.title).sort(),
+    ['插件安装方式', '档案新条目'],
+  );
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('docSaved').slice(0, 4))));
+});
+
+await test('整理：每个同标签分组各自合并，原条目归档', async () => {
+  for (const seed of [
+    { title: '整理甲', content: '甲的内容', category: 'fact', tags: ['tidy'] },
+    { title: '整理乙', content: '乙的内容', category: 'fact', tags: ['tidy'] },
+  ]) {
+    await api.handle({
+      method: 'POST',
+      pathname: `${API_PREFIX}/save`,
+      body: { workspace: WS, source: 'manual', ...seed },
+    });
+  }
+
+  renderPage('zh');
+  await settle(10);
+  mini.click(mini.findByText(view, makeT('zh')('tidy'), 'button'));
+  await settle(20);
+
+  const all = store.list({ workspace: WS, includeArchived: true }).records;
+  const merged = all.find((record) => record.title === 'tidy' && !record.archived);
+  assert.ok(merged, '整理没有生成合并条');
+  assert.deepEqual(merged.tags, ['tidy']);
+  assert.ok(merged.content.includes('整理甲') && merged.content.includes('整理乙'), '合并正文不完整');
+  for (const title of ['整理甲', '整理乙']) {
+    assert.equal(all.find((record) => record.title === title).archived, true, `${title} 没有被归档`);
+  }
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('tidied').slice(0, 3))));
+});
+
+await test('没有可整理的标签分组时直说，不发写请求', async () => {
+  // 重新挂载：提示条靠 2600ms 定时器自动消失，复用上一页实例会让上一条提示的定时器
+  // 正好在这次断言前把新提示清掉（实测确实被清掉）。新实例没有待触发的定时器。
+  renderPage('zh');
+  await settle(10);
+  const writes = fetchCalls.length;
+  mini.click(mini.findByText(view, makeT('zh')('tidy'), 'button'));
+  await settle(10);
+  const made = fetchCalls.slice(writes).map((call) => call.pathname);
+  assert.equal(made.length, 0, `没有可整的分组却发了请求：${made.join(', ')}`);
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('tidyNothing').slice(0, 6))));
+});
+
+await test('档案页的两个开关即时写入设置（走 /settings）', async () => {
+  const before = fetchCalls.filter((call) => call.pathname === `${API_PREFIX}/settings`).length;
+
+  mini.click(switchNodes()[0]);
+  await settle(10);
+  assert.equal(settings.get().autoCapture, true, '对话记忆开关没有落库');
+  mini.click(switchNodes()[1]);
+  await settle(10);
+  assert.equal(settings.get().mirror, false, '本地记忆与技能开关没有落库');
+
+  const after = fetchCalls.filter((call) => call.pathname === `${API_PREFIX}/settings`).length;
+  assert.equal(after - before, 2, '两个开关应该各发一次 /settings');
+
+  /* 重新挂载后开关状态来自后端，而不是只改了本地 state。 */
+  renderPage('zh');
+  await settle(10);
+  assert.deepEqual(switchNodes().map((node) => node.props['data-on']), ['1', '0']);
 });
 
 /* ---------------- 英文 ---------------- */
