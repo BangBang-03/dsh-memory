@@ -410,8 +410,9 @@ await test('首屏渲染出三条记忆与统计', async () => {
   assert.match(body, /全局偏好/);
   // 默认范围是「全部」，所以顶部计数 = 本工作区 + 全局，和列表里的卡片数对得上。
   assert.match(body, /共 3条/);
-  assert.match(body, /全局 1/);
-  assert.match(body, /全局 1/);
+  // 记忆空间默认把「项目记忆 / 全局记忆」分开统计与分区，和 Qoder 的划分一致。
+  assert.match(body, /项目记忆 2/);
+  assert.match(body, /全局记忆 1/);
   assert.ok(body.includes(makeT('zh')('nav')), '缺少导航标签');
 });
 
@@ -589,6 +590,160 @@ await test('切到设置页会渲染开关与保存按钮', async () => {
     new RegExp(escapeRe(makeT('zh')('mirrorEmpty'))),
     '镜像已存在时预览区不该再说「还没有生成镜像文件」',
   );
+});
+
+/* ---------------- 记忆空间：项目/全局分区 + 按标签分组 ---------------- */
+
+/* 造两组同标签的记忆，才用得上「整合」；另外造一条全局的，验证分区不串。 */
+for (const seed of [
+  { title: '空间甲', content: '甲的内容', category: 'fact', tags: ['space'] },
+  { title: '空间乙', content: '乙的内容', category: 'fact', tags: ['space'] },
+  { title: '空间全局', content: '全局的内容', category: 'preference', tags: ['space'], scope: 'global' },
+]) {
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/save`,
+    body: { workspace: WS, source: 'manual', ...seed },
+  });
+}
+
+/* 注意要整词匹配：class 里 dshmem_section 是 dshmem_sectionHead/_Title 的前缀。 */
+const byClass = (name) => (node) =>
+  String((node && node.props && node.props.className) || '')
+    .split(/\s+/)
+    .includes(name);
+
+await test('记忆空间按「项目记忆 / 全局记忆」分区，组内再按标签归类', async () => {
+  renderPage('zh');
+  await settle(10);
+
+  const sections = mini.findAll(view, byClass('dshmem_section'));
+  assert.equal(sections.length, 2, `应该有两个分区，实际 ${sections.length} 个`);
+  const [project, global] = sections.map((node) => mini.textOf(node));
+  assert.match(project, /项目记忆/);
+  assert.match(global, /全局记忆/);
+  assert.match(project, /空间甲/, '项目分区里没有本工作区的记忆');
+  assert.match(global, /空间全局/, '全局分区里没有全局记忆');
+  assert.doesNotMatch(project, /空间全局/, '全局记忆混进了项目分区');
+  assert.doesNotMatch(global, /空间甲/, '项目记忆混进了全局分区');
+
+  const groups = mini.findAll(view, byClass('dshmem_group'));
+  const spaceGroups = groups.filter((node) => mini.textOf(node).startsWith('▾ #space'));
+  assert.equal(spaceGroups.length, 2, '#space 应该分别在两个分区里各成一组');
+  assert.match(mini.textOf(spaceGroups[0]), /空间甲/);
+  assert.match(mini.textOf(spaceGroups[0]), /空间乙/);
+  assert.match(mini.textOf(spaceGroups[1]), /空间全局/);
+  assert.doesNotMatch(mini.textOf(spaceGroups[1]), /空间甲/);
+
+  /* 没有标签的记忆落到「未归类」，且排在最后。 */
+  const labels = groups.map((node) => mini.textOf(node).slice(0, 8));
+  assert.ok(labels.some((label) => label.includes('未归类')), '缺少「未归类」分组');
+  assert.ok(
+    labels[labels.length - 1].includes('未归类'),
+    `「未归类」应该排在最后，实际顺序：${labels.join(' | ')}`,
+  );
+});
+
+await test('分区与分组都能折叠', async () => {
+  renderPage('zh');
+  await settle(10);
+  const spaceTitle = () =>
+    mini
+      .findAll(view, byClass('dshmem_groupTitle'))
+      .find((node) => mini.textOf(node).includes('#space'));
+
+  const open = spaceTitle();
+  assert.ok(open, '找不到 #space 组标题');
+  assert.match(mini.textOf(open), /^▾ /, '展开态应该带 ▾');
+  mini.click(open);
+  await settle(8);
+  assert.match(mini.textOf(spaceTitle()), /^▸ /, '折叠后没有换成 ▸');
+  assert.doesNotMatch(text(), /甲的内容/, '折叠后组内条目还在');
+  mini.click(spaceTitle());
+  await settle(8);
+  assert.match(text(), /甲的内容/, '再点一次没能展开');
+
+  const globalHead = mini.findAll(view, byClass('dshmem_sectionHead'))[1];
+  assert.ok(globalHead, '找不到全局分区头');
+  mini.click(globalHead);
+  await settle(8);
+  assert.doesNotMatch(text(), /空间全局/, '折叠分区后条目还在');
+  assert.match(text(), /全局记忆/, '折叠分区后分区标题不该消失');
+  mini.click(mini.findAll(view, byClass('dshmem_sectionHead'))[1]);
+  await settle(8);
+  assert.match(text(), /空间全局/, '分区没能重新展开');
+});
+
+await test('整合：同标签的记忆合并成一条，原条目自动归档', async () => {
+  renderPage('zh');
+  await settle(10);
+
+  const group = mini
+    .findAll(view, byClass('dshmem_group'))
+    .find((node) => mini.textOf(node).startsWith('▾ #space'));
+  assert.ok(group, '找不到 #space 分组');
+  const button = mini.findByText(group, makeT('zh')('consolidate'), 'button');
+  assert.ok(button, '同组两条记忆时没有出现「整合」按钮');
+  mini.click(button);
+  await settle(6);
+
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('consolidateHint').slice(0, 6))));
+  const titleInput = mini
+    .findAllByTag(view, 'input')
+    .find((node) => node.props.placeholder === makeT('zh')('fTitlePh'));
+  const contentArea = mini
+    .findAllByTag(view, 'textarea')
+    .find((node) => node.props.placeholder === makeT('zh')('fContentPh'));
+  assert.ok(titleInput && contentArea, '整合没有打开编辑表单');
+  assert.equal(titleInput.props.value, 'space', '标题没有预填成标签名');
+  assert.ok(contentArea.props.value.includes('空间甲'), '合并正文没有列出第一条');
+  assert.ok(contentArea.props.value.includes('空间乙'), '合并正文没有列出第二条');
+
+  mini.click(mini.findByText(view, makeT('zh')('save'), 'button'));
+  await settle(14);
+
+  const all = store.list({ workspace: WS, includeArchived: true }).records;
+  const merged = all.find((record) => record.title === 'space' && !record.archived);
+  assert.ok(merged, '没有生成合并后的记忆');
+  assert.deepEqual(merged.tags, ['space']);
+  assert.equal(merged.scope, 'workspace');
+  assert.ok(merged.content.includes('空间甲') && merged.content.includes('空间乙'), '合并正文不完整');
+  for (const title of ['空间甲', '空间乙']) {
+    assert.equal(all.find((record) => record.title === title).archived, true, `${title} 没有被归档`);
+  }
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('consolidated').slice(0, 6))));
+  assert.equal(
+    store.list({ workspace: WS }).records.some((record) => record.title === '空间甲'),
+    false,
+    '归档后的原条目不该留在默认列表里',
+  );
+});
+
+await test('列表 / 记忆空间视图互切，范围 chip 只留一个分区', async () => {
+  renderPage('zh');
+  await settle(10);
+
+  mini.click(mini.findByText(view, makeT('zh')('viewList'), 'button'));
+  await settle(8);
+  assert.equal(mini.findAll(view, byClass('dshmem_section')).length, 0, '列表视图不该再有分区');
+  assert.ok(mini.findAll(view, byClass('dshmem_card')).length > 0, '列表视图没有卡片');
+  assert.match(text(), /#space/, '列表视图应该显示标签云');
+
+  mini.click(mini.findByText(view, makeT('zh')('viewSpace'), 'button'));
+  await settle(8);
+  assert.equal(mini.findAll(view, byClass('dshmem_section')).length, 2, '切回空间视图没有恢复分区');
+
+  const chip = mini
+    .findAll(view, byClass('dshmem_chip_click'))
+    .find((node) => mini.textOf(node).startsWith(makeT('zh')('scopeGlobalFull')));
+  assert.ok(chip, '找不到「全局记忆」范围 chip');
+  mini.click(chip);
+  await settle(12);
+  const sections = mini.findAll(view, byClass('dshmem_section'));
+  assert.equal(sections.length, 1, '筛到全局后应该只剩一个分区');
+  assert.match(mini.textOf(sections[0]), /全局记忆 1|全局记忆/);
+  assert.ok(mini.textOf(sections[0]).includes('空间全局'), '全局分区里没有全局记忆');
+  assert.doesNotMatch(text(), /端到端测试记忆/, '筛到全局后不该再出现项目记忆');
 });
 
 /* ---------------- 英文 ---------------- */
