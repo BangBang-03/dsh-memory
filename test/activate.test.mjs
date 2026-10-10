@@ -155,6 +155,19 @@ async function callRoute(handler, options) {
   return { status: res.statusCode, body };
 }
 
+/**
+ * 轮询等待一个异步条件成立。自动提炼是「发出去就不管」的后台任务，
+ * 断言前必须等它自己跑完，不能靠固定 sleep 猜时间。
+ */
+async function waitFor(predicate, { timeout = 3000, step = 15 } = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    if (await predicate()) return true;
+    if (Date.now() > deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, step));
+  }
+}
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-activate-'));
 const workspace = path.join(tmp, 'workspace');
 fs.mkdirSync(workspace, { recursive: true });
@@ -534,6 +547,103 @@ await test('没接 llm 服务时，提炼路径给可读错误而不是崩外壳
 
   // 提炼失败不该影响正常读写。
   assert.equal((await callRoute(route, { url: `/memory/api/list?workspace=${encodeURIComponent(workspace)}` })).status, 200);
+});
+
+await test('轮次结束的自动提炼：默认关着，一次 LLM 都不调', async () => {
+  const seen = [];
+  const { calls, session } = activate({ services: { llm: fakeLlm(DISTILL_REPLY, seen) } });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+
+  assert.equal(onEvent(session, { type: 'turn/end' }), undefined);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(seen.length, 0, 'autoCapture 默认 false，不该烧 token');
+});
+
+await test('轮次结束的自动提炼：开着的时候后台真的落库', async () => {
+  const { calls, route, session } = activate({
+    services: { llm: fakeLlm(DISTILL_REPLY) },
+    autoCapture: true,
+    captureCooldownMs: 0,
+    // 夹具对话只有一百多字，把门槛压下来才能走到 LLM（门槛本身由 distill 套件守着）。
+    autoCaptureMinChars: 100,
+  });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  const q = `?workspace=${encodeURIComponent(workspace)}`;
+
+  onEvent(session, { type: 'turn/end' });
+
+  const landed = await waitFor(async () => {
+    const list = await callRoute(route, { url: `/memory/api/list${q}` });
+    return list.body.records.some((record) => record.source === 'auto');
+  });
+  assert.ok(landed, '后台提炼应该把候选落库');
+
+  const list = await callRoute(route, { url: `/memory/api/list${q}` });
+  const record = list.body.records.find((item) => item.source === 'auto');
+  assert.equal(record.title, '插件基调用 DeepSeek 鲸鱼蓝');
+  assert.equal(record.sessionId, 'session-1');
+
+  // 面板上的「最近提炼」也要能看到这次自动提炼。
+  const state = await callRoute(route, { url: `/memory/api/state${q}` });
+  assert.equal(state.body.captures[0].reason, 'captured');
+  assert.equal(state.body.captures[0].saved, 1);
+});
+
+await test('轮次结束的自动提炼：对话太短就直接跳过，不烧 token', async () => {
+  const seen = [];
+  const { calls, route, session, messages } = activate({
+    services: { llm: fakeLlm(DISTILL_REPLY, seen) },
+    autoCapture: true,
+    captureCooldownMs: 0,
+  });
+  messages.length = 0;
+  messages.push({ role: 'user', content: [{ type: 'text', text: '嗯' }] });
+
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  onEvent(session, { type: 'turn/end' });
+
+  const logged = await waitFor(async () => {
+    const state = await callRoute(route, { url: `/memory/api/state?workspace=${encodeURIComponent(workspace)}` });
+    return state.body.captures.length > 0;
+  });
+  assert.ok(logged, '跳过也要留痕');
+  assert.equal(seen.length, 0, '太短就不该调用 LLM');
+  const state = await callRoute(route, { url: `/memory/api/state?workspace=${encodeURIComponent(workspace)}` });
+  assert.equal(state.body.captures[0].reason, 'too_short');
+});
+
+await test('轮次结束的自动提炼：LLM 卡住时轮次收尾照样立刻返回', () => {
+  const stalling = { stream: () => (async function* stream() { await new Promise(() => {}); })() };
+  const { calls, session } = activate({ services: { llm: stalling }, autoCapture: true, captureCooldownMs: 0 });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+
+  const started = Date.now();
+  onEvent(session, { type: 'turn/end' });
+  // 真的把 LLM await 在轮次收尾里的话，这里会永远回不来。
+  assert.ok(Date.now() - started < 500, '不能同步等 LLM');
+});
+
+await test('轮次结束的自动提炼：LLM 报错时只记 reason=error，不影响读写', async () => {
+  const boom = { stream: () => (async function* stream() { throw new Error('boom'); })() };
+  const { calls, route, session } = activate({
+    services: { llm: boom },
+    autoCapture: true,
+    captureCooldownMs: 0,
+    autoCaptureMinChars: 100,
+  });
+  const q = `?workspace=${encodeURIComponent(workspace)}`;
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+
+  onEvent(session, { type: 'turn/end' });
+
+  const logged = await waitFor(async () => {
+    const state = await callRoute(route, { url: `/memory/api/state${q}` });
+    return state.body.captures.some((entry) => entry.reason === 'error');
+  });
+  assert.ok(logged, '失败要留痕：' + JSON.stringify(calls.warn));
+  const list = await callRoute(route, { url: `/memory/api/list${q}` });
+  assert.equal(list.status, 200);
+  assert.equal(list.body.records.length, 0);
 });
 
 await test('镜像：面板保存的记忆真的落到工作区 .dsh-memory/MEMORY.md，关掉开关后撤回', async () => {

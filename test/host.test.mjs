@@ -70,5 +70,5 @@ for (const [state, label, detail] of checks) {
     console.log(`  FAIL ${label}${detail ? ` — ${detail}` : ''}`);
   }
 }
-console.log(`\n${checks.length - failed}/${checks.length} 通过`);
+console.log(`\n${checks.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
