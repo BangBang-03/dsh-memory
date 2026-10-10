@@ -403,8 +403,8 @@ async function settle(rounds = 6) {
 const text = () => mini.textOf(handle.tree);
 
 /* 视图分段控件：档案（默认）/ 记忆空间 / 列表。卡片只在列表视图里出现。 */
-const switchView = async (key) => {
-  const button = mini.findByText(handle.tree, makeT('zh')(key), 'button');
+const switchView = async (key, locale = 'zh') => {
+  const button = mini.findByText(handle.tree, makeT(locale)(key), 'button');
   assert.ok(button, `找不到视图按钮：${key}`);
   mini.click(button);
   await settle(8);
@@ -417,12 +417,22 @@ await test('首屏渲染出三条记忆与统计', async () => {
   assert.match(body, /插件安装方式/);
   assert.match(body, /alpha 约定/);
   assert.match(body, /全局偏好/);
-  // 默认范围是「全部」，所以顶部计数 = 本工作区 + 全局，和列表里的卡片数对得上。
-  assert.match(body, /共 3条/);
-  // 记忆空间把「项目记忆 / 全局记忆」分开统计与分区，和 Qoder 的划分一致；统计行三种视图都在。
-  assert.match(body, /项目记忆 2/);
-  assert.match(body, /全局记忆 1/);
-  assert.ok(body.includes(makeT('zh')('nav')), '缺少导航标签');
+  // 档案视图是「一个工作区一份长记忆」：只有视图切换、两个开关和正文，
+  // 条数统计、搜索框、排序、新建这些管理动作全部收进列表/记忆空间视图。
+  assert.doesNotMatch(body, /共 \d+条/, '档案视图不该出现条数统计');
+  assert.equal(
+    mini.findAllByTag(view, 'input').some((node) => node.props.placeholder === makeT('zh')('search')),
+    false,
+    '档案视图不该出现搜索框',
+  );
+  assert.match(body, /直接在对话里说/, '档案视图缺少「在对话里加记忆」的提示');
+  // 切到列表视图才能看到条数与范围统计（记忆空间把「项目记忆 / 全局记忆」分开统计，和 Qoder 的划分一致）。
+  await switchView('viewList');
+  const list = text();
+  assert.match(list, /共 3条/);
+  assert.match(list, /项目记忆 2/);
+  assert.match(list, /全局记忆 1/);
+  assert.ok(list.includes(makeT('zh')('nav')), '缺少导航标签');
 });
 
 await test('页面确实读了宿主 /state 与 /list', () => {
@@ -915,8 +925,13 @@ await test('英文界面不带中文残留（导航/按钮走 en 字典）', asy
   await settle();
   const body = text();
   assert.match(body, /Memories/);
-  assert.match(body, /New memory/);
-  assert.doesNotMatch(body, /新建记忆/);
+  assert.match(body, /No form needed to add a memory/);
+  assert.doesNotMatch(body, /直接在对话里说/);
+  // 新建按钮只在管理视图里，切过去再断言它也是英文。
+  await switchView('viewList', 'en');
+  const list = text();
+  assert.match(list, /New memory/);
+  assert.doesNotMatch(list, /新建记忆/);
 });
 
 await test('所有 t(...) 键都在 zh 与 en 字典里', async () => {
