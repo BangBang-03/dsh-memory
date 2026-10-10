@@ -293,9 +293,34 @@ await test('会话一开始，系统提示段就带上本工作区的记忆简�
   assert.equal(typeof briefing, 'string');
   assert.match(briefing, /构建命令是 pnpm build/);
   assert.match(briefing, /长期记忆/);
+  // 装得下的时候不该出现「只列了…」的说明。
+  assert.doesNotMatch(briefing, /只列了/);
 
   // 没有 agent 上下文（比如别处的渲染）也不能炸。
   assert.equal(typeof calls.sections[0].text(undefined), 'string');
+});
+
+await test('记忆装不下时，简报会说明「只列了几条」而不是假装列全了', async () => {
+  // 把字数上限压到刚好只能放 3 条（briefing 的规则：至少 3 条，之后看字数）。
+  // 关掉 dedupe，否则这 5 条太像会被合并成 1 条（那是另一条测试覆盖的行为）。
+  const { calls, tool, exec, session } = activate({ briefingMaxChars: 260, briefingLimit: 12, dedupe: false });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  for (let index = 0; index < 5; index += 1) {
+    await tool.execute(
+      {
+        action: 'save',
+        title: `约定 ${index}：${'长标题'.repeat(12)}`,
+        content: '内容'.repeat(90),
+        category: 'convention',
+      },
+      exec,
+    );
+  }
+
+  const briefing = calls.sections[0].text({ agent: { session } });
+  assert.match(briefing, /只列了最相关的 3 \/ 5 条/);
+  assert.match(briefing, /action=list/);
 });
 
 await test('webServer 路由：state 认工作区、save 落库、list 回读', async () => {
