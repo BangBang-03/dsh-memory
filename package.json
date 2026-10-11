@@ -1,7 +1,6 @@
 {
-  "name": "dsh-memory",
+  "name": "@bangbang-03/dsh-memory",
   "version": "0.3.1",
-  "private": true,
   "description": "DSH 工作区长期记忆：索引式简报省 token、轮末相关召回、memory 工具按需读写、版本链与体检、轮次结束自动提炼（可草稿审批），设置面板里可视化查看与管理。",
   "keywords": [
     "dsh",
@@ -16,6 +15,9 @@
   "license": "MIT",
   "author": "BangBang-03",
   "icon": "icon.svg",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/BangBang-03/dsh-memory.git"
@@ -39,7 +41,6 @@
   "files": [
     "lib",
     "locale",
-    "test",
     "icon.svg",
     "cordis.patch.yml",
     "install.ps1",
@@ -71,6 +72,9 @@
     "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-llm": {
       "optional": true
     },
@@ -82,6 +86,7 @@
     }
   },
   "scripts": {
-    "test": "node test/run-all.mjs"
+    "test": "node test/run-all.mjs",
+    "prepublishOnly": "node test/run-all.mjs"
   }
 }

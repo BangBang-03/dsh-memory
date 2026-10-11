@@ -6,7 +6,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -231,7 +231,195 @@ await test('uninstall.ps1 在没装过的 profile 上是无害的空操作', () 
   assert.match(result.stdout, /没有 dsh-memory/);
 });
 
+/* ------------------------------------------------------------------ *
+ * v0.3.1：-FromNpm 远程拉取（对着本机假 registry 真跑 HTTP 流程）
+ * ------------------------------------------------------------------ */
+
+import http from 'node:http';
+
+/** 造一个 npm 形状的包 tarball（顶层 package/ 目录，同 npm pack 产物）。 */
+function buildTgz(version, dest) {
+  const src = path.join(tmp, `npm-fixture-${version}`);
+  fs.rmSync(src, { recursive: true, force: true });
+  fs.mkdirSync(path.join(src, 'package', 'lib'), { recursive: true });
+  fs.writeFileSync(
+    path.join(src, 'package', 'package.json'),
+    `${JSON.stringify({ name: '@bangbang-03/dsh-memory', version, type: 'module' })}\n`,
+  );
+  fs.writeFileSync(path.join(src, 'package', 'cordis.patch.yml'), '- insert:\n    - id: dsh-memory\n      name: dsh-memory\n');
+  fs.writeFileSync(path.join(src, 'package', 'lib', 'index.js'), 'export function apply() {}\n');
+  fs.writeFileSync(path.join(src, 'package', 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  /* GNU tar 会把 "C:\xxx" 当成远程主机，所以用相对文件名 + cwd。 */
+  const out = spawnSync('tar', ['-czf', path.basename(dest), '-C', src, 'package'], { cwd: path.dirname(dest) });
+  if (out.status !== 0) throw new Error(`tar 失败: ${out.stderr}`);
+}
+
+const tgzByVersion = {};
+for (const v of ['0.3.1', '0.3.2']) {
+  const dest = path.join(tmp, `dsh-memory-${v}.tgz`);
+  buildTgz(v, dest);
+  tgzByVersion[v] = fs.readFileSync(dest);
+}
+
+/** 假 npm registry：/ 包元数据 + /tarball 下载；记录收到的 Authorization 头。 */
+async function startFakeRegistry() {
+  const state = { latest: '0.3.1' };
+  const received = [];
+  const server = http.createServer((req, res) => {
+    received.push({ url: req.url, auth: req.headers.authorization || '' });
+    if (req.url.toLowerCase() === '/%40bangbang-03%2fdsh-memory') {
+      const v = state.latest;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          name: '@bangbang-03/dsh-memory',
+          'dist-tags': { latest: v },
+          versions: {
+            [v]: {
+              name: '@bangbang-03/dsh-memory',
+              version: v,
+              dist: { tarball: `http://127.0.0.1:${server.address().port}/dsh-memory-${v}.tgz` },
+            },
+          },
+        }),
+      );
+      return;
+    }
+    const tgzMatch = /^\/dsh-memory-(\d+\.\d+\.\d+)\.tgz$/.exec(req.url);
+    if (tgzMatch && tgzByVersion[tgzMatch[1]]) {
+      res.writeHead(200, { 'content-type': 'application/gzip' });
+      res.end(tgzByVersion[tgzMatch[1]]);
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not Found' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { server, state, received };
+}
+
+const { server: fakeRegistry, state: registryState, received: registryReceived } = await startFakeRegistry();
+const registryBase = `http://127.0.0.1:${fakeRegistry.address().port}`;
+
+const remoteHome = path.join(tmp, 'dshhome-remote');
+const remoteProfileDir = path.join(remoteHome, 'profiles', 'desktop');
+const remoteProfileJson = path.join(remoteProfileDir, 'package.json');
+const remotePluginsDir = path.join(remoteHome, 'plugins', 'dsh-memory');
+
+/**
+ * 异步版 runScript：-FromNpm 的用例必须用它——spawnSync 会阻塞 node 事件循环，
+ * 假 registry 就没法应答 pwsh 的请求，直接死锁。
+ */
+function runScriptAsync(script, args) {
+  return new Promise((resolve) => {
+    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', path.join(pkgRoot, script), ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const chunks = { stdout: [], stderr: [] };
+    child.stdout.on('data', (chunk) => chunks.stdout.push(chunk));
+    child.stderr.on('data', (chunk) => chunks.stderr.push(chunk));
+    child.on('error', (err) => resolve({ status: -1, stdout: '', stderr: String(err) }));
+    child.on('close', (status) =>
+      resolve({
+        status,
+        stdout: chunks.stdout.length ? decodeConsole(Buffer.concat(chunks.stdout)) : '',
+        stderr: chunks.stderr.length ? decodeConsole(Buffer.concat(chunks.stderr)) : '',
+      }),
+    );
+  });
+}
+
+function seedRemoteProfile() {
+  fs.rmSync(remoteHome, { recursive: true, force: true });
+  fs.mkdirSync(path.join(remoteHome, 'profiles', 'node_modules', '@deepseek-ai'), { recursive: true });
+  fs.mkdirSync(path.join(remoteProfileDir, 'node_modules'), { recursive: true });
+  fs.writeFileSync(remoteProfileJson, `${JSON.stringify(ORIGINAL_PROFILE, null, 2)}\n`, 'utf8');
+}
+
+const remoteInstall = async (extra = []) =>
+  runScriptAsync('install.ps1', [
+    '-Profile', 'desktop',
+    '-DshHome', remoteHome,
+    '-FromNpm', '@bangbang-03/dsh-memory',
+    '-Registry', registryBase,
+    ...extra,
+  ]);
+
+await test('-FromNpm：从 registry 拉 latest 并装进 profile（解包 / 垫片 / package.json / junction）', async () => {
+  seedRemoteProfile();
+  const result = await remoteInstall();
+  assert.equal(result.status, 0, `退出码 ${result.status}\n${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /0\.3\.1/, '应打印拉到的版本');
+
+  const installed = JSON.parse(fs.readFileSync(path.join(remotePluginsDir, 'package.json'), 'utf8'));
+  assert.equal(installed.version, '0.3.1', 'tarball 应解到 plugins/dsh-memory');
+  assert.ok(fs.existsSync(path.join(remotePluginsDir, 'cordis.patch.yml')), '包内容应完整');
+
+  const profile = JSON.parse(fs.readFileSync(remoteProfileJson, 'utf8'));
+  assert.ok(profile.dsh.profile.bundles.includes('dsh-memory'), 'bundles 应追加');
+  assert.match(profile.dependencies['dsh-memory'], /^link:/, '依赖应指向 plugins 解包目录');
+
+  const link = linkTarget(path.join(remoteProfileDir, 'node_modules', 'dsh-memory'));
+  assert.equal(path.resolve(link), path.resolve(remotePluginsDir), 'junction 应指向 plugins 解包目录');
+
+  const shim = path.resolve(linkTarget(path.join(remotePluginsDir, 'node_modules', '@deepseek-ai')));
+  assert.equal(shim, path.resolve(remoteHome, 'profiles', 'node_modules', '@deepseek-ai'), '垫片应指向共享模块');
+});
+
+await test('-FromNpm：registry 出新版后重跑同一条命令即完成更新', async () => {
+  registryState.latest = '0.3.2';
+  const result = await remoteInstall();
+  assert.equal(result.status, 0, result.stderr);
+  const installed = JSON.parse(fs.readFileSync(path.join(remotePluginsDir, 'package.json'), 'utf8'));
+  assert.equal(installed.version, '0.3.2', '应整体替换成 0.3.2');
+  assert.equal(
+    path.resolve(linkTarget(path.join(remoteProfileDir, 'node_modules', 'dsh-memory'))),
+    path.resolve(remotePluginsDir),
+    'junction 仍指向同一目录（DSH 侧无需任何动作）',
+  );
+  assert.ok(fs.existsSync(path.join(remotePluginsDir, 'cordis.patch.yml')), '更新后包内容完整');
+});
+
+await test('-FromNpm -DryRun：不联网、不落盘', async () => {
+  seedRemoteProfile();
+  const requestsBefore = registryReceived.length;
+  const result = await remoteInstall(['-DryRun']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.existsSync(remotePluginsDir), false, '不该建 plugins 目录');
+  assert.match(result.stdout, /没有联网/);
+  assert.equal(registryReceived.length, requestsBefore, 'dry run 不该发任何请求');
+});
+
+await test('-FromNpm：-NpmToken 以 Bearer 头带上（GitHub Packages 场景）', async () => {
+  seedRemoteProfile();
+  const before = registryReceived.length;
+  const result = await remoteInstall(['-NpmToken', 'test-token-abc']);
+  assert.equal(result.status, 0, result.stderr);
+  const sent = registryReceived.slice(before);
+  assert.ok(sent.length >= 2, '元数据与 tarball 两次请求');
+  assert.ok(
+    sent.every((r) => r.auth === 'Bearer test-token-abc'),
+    `实际头：${sent.map((r) => r.auth || '(无)').join(' | ')}`,
+  );
+});
+
+await test('-FromNpm：registry 没有该包时明确报错退出', async () => {
+  seedRemoteProfile();
+  const result = await runScriptAsync('install.ps1', [
+    '-Profile', 'desktop',
+    '-DshHome', remoteHome,
+    '-FromNpm', '@bangbang-03/nope',
+    '-Registry', registryBase,
+  ]);
+  assert.notEqual(result.status, 0, '应该失败退出');
+  assert.match(result.stdout + result.stderr, /404/, '错误信息应带上 404');
+});
+
 /* ------------------------------------------------------------------ */
+
+/* 不关掉假 registry，node 会因监听句柄挂着不退（run-all 会一直等子进程）。 */
+fakeRegistry.closeAllConnections?.();
+await new Promise((resolve) => fakeRegistry.close(resolve));
 
 fs.rmSync(tmp, { recursive: true, force: true });
 

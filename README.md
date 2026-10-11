@@ -151,6 +151,41 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 `new URL("memory/api/…", document.baseURI)` 解析，反代目录前缀和 `dsh-app://` 外壳下都能到达。
 非回环来源会被 403 拒绝。
 
+## npm 包与远程更新
+
+包以 **`@bangbang-03/dsh-memory`** 发布（`dsh-memory` 裸名在 npmjs 已被他人占用）。发布位置是
+**GitHub Packages**（`npm.pkg.github.com`）——npmjs.org 在部分网络环境下不可达，GitHub 这条
+通路用现有的 GitHub 凭据即可发布与安装。等 npmjs 可达后，同一份代码 `npm publish --access public`
+就能再发一份公共包（`prepublishOnly` 会先跑全量测试）。
+
+### 远程安装 / 更新（不再需要本地克隆）
+
+```powershell
+# GitHub Packages（需要带 read:packages 的 PAT）
+pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory" `
+  -Registry https://npm.pkg.github.com -NpmToken $env:NPM_TOKEN
+
+# 若走 npmjs 公共包（发布后），匿名即可：
+pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory"
+```
+
+`-FromNpm` 会把包的 tarball 拉下来解包到 `~/.dsh/plugins/dsh-memory`，然后对它执行与本地安装相同的
+三步（垫片 / profile 清单 / junction）。**更新就是重跑同一条命令**：脚本会整体替换 plugins 里的旧版本，
+junction 与 profile 引用的目录名不变，DSH 侧不需要任何动作；想锁版本就在包名后带 `@0.3.1`。
+`-DryRun` 只打印计划，不联网不落盘。替换旧版本时脚本会先摘掉目录内的垫片 junction 再删
+（PowerShell 5.1 的 `Remove-Item -Recurse` 会跟进 junction 删到共享模块里，这一步是防它的）。
+
+卸载（`uninstall.ps1`）只拆 junction 与 profile 清单项，`~/.dsh/plugins/dsh-memory` 会保留
+（想彻底清掉手动删即可），记忆数据依旧只随 `-PurgeStorage` 删。
+
+### 发布新版本（维护者）
+
+```powershell
+npm publish --registry https://npm.pkg.github.com --access public
+# 凭据：把带 write:packages 的 PAT 写进 ~/.npmrc 的 //npm.pkg.github.com/:_authToken，
+# 或临时用环境变量注入，不要把 token 提交进仓库。
+```
+
 ## 档案（默认视图）
 
 面板默认是**档案**视图，形状照着 WorkBuddy 的「记忆与进化」页做。它只有一样东西：
