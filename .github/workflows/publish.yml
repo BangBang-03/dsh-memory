@@ -16,7 +16,9 @@ permissions:
 
 jobs:
   publish:
-    # junction（安装套件真建 junction）只能在 Windows 上跑；runner 预装 pwsh。
+    # 纯逻辑层测试在 runner 上可跑；host/activate/client/install 需要 DSH 运行时包
+    #（@deepseek-ai/* 只存在于本机 profile 的 node_modules，靠 junction 垫片解析），
+    # 那四个套件在本地发版前跑，这里不重复。
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +28,14 @@ jobs:
           node-version: 24
           registry-url: https://npm.pkg.github.com
 
-      - name: Publish（prepublishOnly 会先跑全量测试）
-        run: npm publish
+      - name: 纯逻辑层测试
+        run: |
+          node test/store.test.mjs
+          node test/markdown.test.mjs
+          node test/distill.test.mjs
+          node test/api.test.mjs
+
+      - name: Publish
+        run: npm publish --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
