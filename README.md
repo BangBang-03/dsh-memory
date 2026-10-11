@@ -161,12 +161,15 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ### 远程安装 / 更新（不再需要本地克隆）
 
 ```powershell
-# GitHub Packages（需要带 read:packages 的 PAT）
+# 方式一：Release 资产直连（公开、零凭据，推荐）。
+# 每次发版都会上传固定名资产 dsh-memory-latest.tgz，/latest/download/ 永远指向最新版：
+pwsh -File install.ps1 -FromUrl "https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz"
+
+# 方式二：走 GitHub Packages 的 npm registry（需要带 read:packages 的 PAT）
 pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory" `
   -Registry https://npm.pkg.github.com -NpmToken $env:NPM_TOKEN
 
-# 若走 npmjs 公共包（发布后），匿名即可：
-pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory"
+# 锁版本用 -FromNpm "@bangbang-03/dsh-memory@0.3.2"；-DryRun 只打印计划，不联网不落盘
 ```
 
 `-FromNpm` 会把包的 tarball 拉下来解包到 `~/.dsh/plugins/dsh-memory`，然后对它执行与本地安装相同的

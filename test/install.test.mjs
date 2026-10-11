@@ -403,6 +403,28 @@ await test('-FromNpm：-NpmToken 以 Bearer 头带上（GitHub Packages 场景�
   );
 });
 
+await test('-FromUrl：直接下 tarball（Release 资产场景，不走 registry 协议）', async () => {
+  seedRemoteProfile();
+  const url = `${registryBase}/dsh-memory-0.3.2.tgz`;
+  const before = registryReceived.length;
+  const result = await runScriptAsync('install.ps1', [
+    '-Profile', 'desktop',
+    '-DshHome', remoteHome,
+    '-FromUrl', url,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const installed = JSON.parse(fs.readFileSync(path.join(remotePluginsDir, 'package.json'), 'utf8'));
+  assert.equal(installed.version, '0.3.2', '应装上 tarball 里的版本');
+  assert.equal(
+    path.resolve(linkTarget(path.join(remoteProfileDir, 'node_modules', 'dsh-memory'))),
+    path.resolve(remotePluginsDir),
+    'junction 指向解包目录',
+  );
+  // 只有一次 tarball 请求：-FromUrl 不该去查 registry 元数据。
+  const metas = registryReceived.slice(before).filter((r) => r.url.toLowerCase().includes('%40'));
+  assert.equal(metas.length, 0, 'FromUrl 不该发元数据请求');
+});
+
 await test('-FromNpm：registry 没有该包时明确报错退出', async () => {
   seedRemoteProfile();
   const result = await runScriptAsync('install.ps1', [
