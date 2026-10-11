@@ -354,7 +354,7 @@ await test('webServer 路由：state 认工作区、save 落库、list 回读', 
   assert.equal(state.body.ok, true);
   assert.equal(state.body.workspace.root, workspace);
   assert.equal(state.body.settings.briefing, true);
-  assert.equal(state.body.version, '0.3.0');
+  assert.equal(state.body.version, '0.3.1');
 
   const saved = await callRoute(route, {
     method: 'POST',

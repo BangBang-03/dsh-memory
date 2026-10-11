@@ -402,11 +402,21 @@ async function settle(rounds = 6) {
 
 const text = () => mini.textOf(handle.tree);
 
-/* 视图分段控件：档案（默认）/ 记忆空间 / 列表。卡片只在列表视图里出现。 */
+/* 视图分段控件只有两个：档案（默认）/ 列表。卡片只在列表视图里出现。 */
 const switchView = async (key, locale = 'zh') => {
   const button = mini.findByText(handle.tree, makeT(locale)(key), 'button');
   assert.ok(button, `找不到视图按钮：${key}`);
   mini.click(button);
+  await settle(8);
+};
+
+/* 档案视图的排布下拉：整篇文档（默认）/ 按标签分组 / 按类型分组——同一份内容的两种排布。 */
+const setLayout = async (value, locale = 'zh') => {
+  const select = mini
+    .findAllByTag(handle.tree, 'select')
+    .find((node) => mini.textOf(node).includes(makeT(locale)('groupByTag')));
+  assert.ok(select, '档案视图里找不到排布下拉');
+  mini.type(select, value);
   await settle(8);
 };
 
@@ -418,7 +428,7 @@ await test('首屏渲染出三条记忆与统计', async () => {
   assert.match(body, /alpha 约定/);
   assert.match(body, /全局偏好/);
   // 档案视图是「一个工作区一份长记忆」：只有视图切换、两个开关和正文，
-  // 条数统计、搜索框、排序、新建这些管理动作全部收进列表/记忆空间视图。
+  // 条数统计、搜索框、排序、新建这些管理动作全部收进列表视图。
   assert.doesNotMatch(body, /共 \d+条/, '档案视图不该出现条数统计');
   assert.equal(
     mini.findAllByTag(view, 'input').some((node) => node.props.placeholder === makeT('zh')('search')),
@@ -426,7 +436,7 @@ await test('首屏渲染出三条记忆与统计', async () => {
     '档案视图不该出现搜索框',
   );
   assert.match(body, /直接在对话里说/, '档案视图缺少「在对话里加记忆」的提示');
-  // 切到列表视图才能看到条数与范围统计（记忆空间把「项目记忆 / 全局记忆」分开统计，和 Qoder 的划分一致）。
+  // 切到列表视图才能看到条数与范围统计（列表把「项目记忆 / 全局记忆」分开统计，和 Qoder 的划分一致）。
   await switchView('viewList');
   const list = text();
   assert.match(list, /共 3条/);
@@ -614,7 +624,7 @@ await test('切到设置页会渲染开关与保存按钮', async () => {
   );
 });
 
-/* ---------------- 记忆空间：项目/全局分区 + 按标签分组 ---------------- */
+/* ---------------- 档案视图：项目/全局分区 + 可选的按标签分组 ---------------- */
 
 /* 造两组同标签的记忆，才用得上「整合」；另外造一条全局的，验证分区不串。 */
 for (const seed of [
@@ -635,10 +645,15 @@ const byClass = (name) => (node) =>
     .split(/\s+/)
     .includes(name);
 
-await test('记忆空间按「项目记忆 / 全局记忆」分区，组内再按标签归类', async () => {
+await test('档案视图按「项目记忆 / 全局记忆」分区，可切成按标签归类', async () => {
   renderPage('zh');
   await settle(10);
-  await switchView('viewSpace');
+
+  /* 默认排布是「整篇文档」：分区里只有标题与正文，没有分组卡片。 */
+  assert.equal(mini.findAll(view, byClass('dshmem_group')).length, 0, '整篇文档排布不该有分组');
+  assert.ok(mini.findAll(view, byClass('dshmem_docPara')).length > 0, '整篇文档排布没有正文段落');
+
+  await setLayout('tag');
 
   const sections = mini.findAll(view, byClass('dshmem_section'));
   assert.equal(sections.length, 2, `应该有两个分区，实际 ${sections.length} 个`);
@@ -670,7 +685,7 @@ await test('记忆空间按「项目记忆 / 全局记忆」分区，组内再�
 await test('分区与分组都能折叠', async () => {
   renderPage('zh');
   await settle(10);
-  await switchView('viewSpace');
+  await setLayout('tag');
   const spaceTitle = () =>
     mini
       .findAll(view, byClass('dshmem_groupTitle'))
@@ -701,7 +716,7 @@ await test('分区与分组都能折叠', async () => {
 await test('整合：同标签的记忆合并成一条，原条目自动归档', async () => {
   renderPage('zh');
   await settle(10);
-  await switchView('viewSpace');
+  await setLayout('tag');
 
   const group = mini
     .findAll(view, byClass('dshmem_group'))
@@ -744,19 +759,23 @@ await test('整合：同标签的记忆合并成一条，原条目自动归档',
   );
 });
 
-await test('列表 / 记忆空间视图互切，范围 chip 只留一个分区', async () => {
+await test('档案 / 列表两个视图互切，范围 chip 只留一个分区', async () => {
   renderPage('zh');
   await settle(10);
 
+  /* 列表：卡片 + 标签云 + 范围 chip，没有分区，也没有档案页的排布下拉。 */
   mini.click(mini.findByText(view, makeT('zh')('viewList'), 'button'));
   await settle(8);
   assert.equal(mini.findAll(view, byClass('dshmem_section')).length, 0, '列表视图不该再有分区');
   assert.ok(mini.findAll(view, byClass('dshmem_card')).length > 0, '列表视图没有卡片');
   assert.match(text(), /#space/, '列表视图应该显示标签云');
-
-  mini.click(mini.findByText(view, makeT('zh')('viewSpace'), 'button'));
-  await settle(8);
-  assert.equal(mini.findAll(view, byClass('dshmem_section')).length, 2, '切回空间视图没有恢复分区');
+  assert.equal(
+    mini
+      .findAllByTag(view, 'select')
+      .some((node) => mini.textOf(node).includes(makeT('zh')('groupByTag'))),
+    false,
+    '列表视图不该出现档案页的排布下拉',
+  );
 
   const chip = mini
     .findAll(view, byClass('dshmem_chip_click'))
@@ -764,9 +783,13 @@ await test('列表 / 记忆空间视图互切，范围 chip 只留一个分区',
   assert.ok(chip, '找不到「全局记忆」范围 chip');
   mini.click(chip);
   await settle(12);
+
+  /* 切回档案：分区回来了，而且只剩筛中的那一个。 */
+  mini.click(mini.findByText(view, makeT('zh')('viewDoc'), 'button'));
+  await settle(10);
   const sections = mini.findAll(view, byClass('dshmem_section'));
   assert.equal(sections.length, 1, '筛到全局后应该只剩一个分区');
-  assert.match(mini.textOf(sections[0]), /全局记忆 1|全局记忆/);
+  assert.match(mini.textOf(sections[0]), /全局记忆/);
   assert.ok(mini.textOf(sections[0]).includes('空间全局'), '全局分区里没有全局记忆');
   assert.doesNotMatch(text(), /端到端测试记忆/, '筛到全局后不该再出现项目记忆');
 });
@@ -783,12 +806,12 @@ await test('档案视图默认打开：分区小标题 + 粗体标题 + 整段�
   const segments = mini.findAll(view, byClass('dshmem_seg_btn'));
   assert.deepEqual(
     segments.map((node) => mini.textOf(node)),
-    ['档案', '记忆空间', '列表'],
-    '分段控件应该是三种视图',
+    ['档案', '列表'],
+    '分段控件应该是两个视图（档案已把记忆空间收进来）',
   );
   assert.ok(byClass('dshmem_seg_on')(segments[0]), '默认应该选中「档案」');
 
-  const sections = mini.findAll(view, byClass('dshmem_docSec'));
+  const sections = mini.findAll(view, byClass('dshmem_sectionTitle'));
   assert.deepEqual(sections.map((node) => mini.textOf(node)), ['项目记忆', '全局记忆']);
 
   const titles = mini.findAll(view, byClass('dshmem_docTitle')).map((node) => mini.textOf(node));
@@ -796,9 +819,9 @@ await test('档案视图默认打开：分区小标题 + 粗体标题 + 整段�
   const paras = mini.findAll(view, byClass('dshmem_docPara')).map((node) => mini.textOf(node));
   assert.ok(paras.some((para) => para.includes('cordis.patch.yml')), '档案里没有整段正文');
 
-  /* 卡片、标签云是列表/空间视图的东西，档案视图里不该出现。 */
+  /* 卡片、标签云是列表视图的东西；档案视图整篇文档排布下只有分区、标题与正文。 */
   assert.equal(mini.findAll(view, byClass('dshmem_card')).length, 0, '档案视图不该渲染卡片');
-  assert.equal(mini.findAll(view, byClass('dshmem_section')).length, 0, '档案视图不该渲染空间分区');
+  assert.equal(mini.findAll(view, byClass('dshmem_section')).length, 2, '档案视图应该有项目/全局两个分区');
 
   const body = text();
   assert.match(body, new RegExp(escapeRe(makeT('zh')('manageMemory'))));
