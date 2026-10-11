@@ -798,6 +798,39 @@ test('unlink：可摘掉指定断链，也可一键清空 related', () => {
   assert.deepEqual(all.record.related, [], '不带 target 应清空');
 });
 
+test('mergeTag：合并大小写变体，全局库一并治理', () => {
+  const s = iso('merge-tag');
+  const ws = makeWorkspace('v03-merge-tag');
+  s.upsert({ title: '标签甲', content: 'x', tags: ['DSH', '项目'] }, { workspace: ws });
+  s.upsert({ title: '标签乙', content: 'x', tags: ['dsh'] }, { workspace: ws });
+  s.upsert({ title: '标签丙', content: 'x', tags: ['别的'] }, { workspace: ws });
+  s.upsert({ title: '全局标签', content: 'x', tags: ['DSH'], scope: 'global' }, { workspace: ws });
+
+  const result = s.mergeTag(['DSH', 'dsh'], 'dsh', { workspace: ws });
+  assert.equal(result.ok, true);
+  /* 乙本来就写成 dsh，不算受影响；需要改的是甲与全局库那条。 */
+  assert.equal(result.affected, 2, '两条带旧写法的记忆应更新（含全局库一条）');
+
+  const all = s.list({ workspace: ws, includeArchived: true, includeDrafts: true }).records;
+  const withDsh = all.filter((r) => (r.tags || []).includes('dsh'));
+  assert.equal(withDsh.length, 3, '合并后统一为 dsh');
+  assert.ok(all.every((r) => !(r.tags || []).includes('DSH')), '旧写法应被清除');
+  assert.ok((all.find((r) => r.title === '标签甲').tags).includes('项目'), '无关标签应保留');
+
+  const empty = s.mergeTag([], 'x', { workspace: ws });
+  assert.equal(empty.ok, false, 'from 为空应拒绝');
+});
+
+test('briefing 预览口径：index 模式下 store.briefing 给出被选中的条目', () => {
+  const s = iso('brief-preview');
+  const ws = makeWorkspace('v03-brief-preview');
+  s.upsert({ title: '置顶必进', content: 'x', category: 'fact', pinned: true }, { workspace: ws });
+  s.upsert({ title: '普通条目', content: 'x', category: 'fact' }, { workspace: ws });
+  const picked = s.briefing({ workspace: ws, limit: 5, maxChars: 2000, mode: 'index' });
+  assert.equal(picked.length, 2, '两条都应进简报');
+  assert.equal(picked[0].title, '置顶必进', '置顶应排最前');
+});
+
 /* ---------------- 结果 ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

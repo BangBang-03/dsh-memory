@@ -31,7 +31,7 @@ const WS = process.platform === 'win32' ? 'C:\\proj\\记忆测试' : '/proj/memo
 const WS2 = process.platform === 'win32' ? 'C:\\proj\\other' : '/proj/other';
 
 const store = createMemoryStore({ dir: path.join(tmp, 'storage') });
-let settingsValue = { autoCapture: true, briefingBudget: 12 };
+let settingsValue = { enabled: true, briefing: true, briefMode: 'index', briefingLimit: 12, briefingMaxChars: 2000, autoCapture: true, briefingBudget: 12 };
 const settings = {
   get: () => ({ ...settingsValue }),
   set(patch) {
@@ -545,6 +545,34 @@ await test('草稿队列：/queue 可见 → /queue/approve 生效（带编辑�
 
   const missing = await call('POST', '/queue/approve', { body: { id: 'mem_nope' } });
   assert.equal(missing.status, 404);
+});
+
+await test('GET /briefing-preview：与简报同一套打分，ids 供卡片标注', async () => {
+  await call('POST', '/save', { body: { title: '预览专用甲', content: 'x', pinned: true } });
+  const res = await call('GET', '/briefing-preview');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.preview.enabled, true);
+  assert.equal(res.body.preview.mode, 'index');
+  assert.ok(res.body.preview.count >= 1);
+  assert.equal(res.body.preview.ids.length, res.body.preview.count, 'ids 与条数一致');
+  assert.ok(res.body.preview.titles.includes('预览专用甲'), '置顶条目应进简报');
+  assert.ok(res.body.preview.estTokens >= 0);
+  assert.equal(res.body.preview.available >= res.body.preview.count, true);
+});
+
+await test('POST /tags/merge：合并变体并返回受影响条数；参数缺失 400', async () => {
+  await call('POST', '/save', { body: { title: '标签治理甲', content: 'x', tags: ['DSH'] } });
+  await call('POST', '/save', { body: { title: '标签治理乙', content: 'x', tags: ['dsh'] } });
+  const res = await call('POST', '/tags/merge', { body: { from: ['DSH', 'dsh'], to: 'dsh' } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.affected, 1, '只有写成 DSH 的那条需要改；乙本来就是 dsh');
+  const list = await call('GET', '/list', { query: { q: '标签治理' } });
+  const withOld = list.body.records.filter((r) => (r.tags || []).includes('DSH'));
+  assert.equal(withOld.length, 0, '旧写法应被清除');
+
+  const bad = await call('POST', '/tags/merge', { body: { from: [], to: 'x' } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, 'nothing_to_merge');
 });
 
 await test('草稿带 supersedes：批准即兑现版本链，草稿被新头取代', async () => {

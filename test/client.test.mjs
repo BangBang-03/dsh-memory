@@ -993,9 +993,9 @@ await test('后端出错时页面显示错误而不是白屏', async () => {
   }
 });
 
-/* ---------------- v0.3.0：时间线 / 健康 / 审批 ---------------- */
+/* ---------------- v0.3.3：变化横幅 / 注入预览 / 时间线排布 / 维护页 ---------------- */
 
-/** tab 按钮可能带数量徽标（如「审批 2」），用 includes 而不是全等。 */
+/** tab 按钮可能带数量徽标（如「维护 2」），用 includes 而不是全等。 */
 const clickTab = async (key, locale = 'zh') => {
   const label = makeT(locale)(key);
   const button = mini
@@ -1006,7 +1006,43 @@ const clickTab = async (key, locale = 'zh') => {
   await settle(8);
 };
 
-await test('时间线 tab：按日分组渲染含归档记忆，点条目打开编辑器', async () => {
+await test('记忆库顶部：变化横幅 + 注入预览（/briefing-preview 被调用，简报条目带标记）', async () => {
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/save`,
+    body: { workspace: WS, title: '横幅专用记忆', content: '二十四小时内的变化。' },
+  });
+
+  renderPage('zh');
+  await settle(8);
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('recentTitle'))), '缺少「刚刚记了什么」横幅');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('briefPreviewTitle'))), '缺少注入预览');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/briefing-preview`),
+    '/briefing-preview 未被调用',
+  );
+  /* 索引模式、条数远小于上限：所有可见条目都应带「✓ 简报」标记。 */
+  assert.match(body, /✓ 简报/, '简报内条目应带标记');
+
+  /* 变化横幅默认收起：标题在档案索引里出现 1 次；点「展开」后横幅会再列一次（≥2 次）。 */
+  const countOccurrences = (hay, needle) => hay.split(needle).length - 1;
+  assert.equal(
+    countOccurrences(body, '横幅专用记忆'),
+    1,
+    '收起时该条目只应出现在档案索引里',
+  );
+  const expand = mini.findByText(view, makeT('zh')('recentOpen'), 'button');
+  assert.ok(expand, '缺少展开按钮');
+  mini.click(expand);
+  await settle(6);
+  assert.ok(
+    countOccurrences(text(), '横幅专用记忆') >= 2,
+    '展开后变化横幅应额外列出这条新记忆',
+  );
+});
+
+await test('时间线排布：档案视图下拉切到时间线，含归档记忆，点条目打开编辑器', async () => {
   const saved = await api.handle({
     method: 'POST',
     pathname: `${API_PREFIX}/save`,
@@ -1020,14 +1056,19 @@ await test('时间线 tab：按日分组渲染含归档记忆，点条目打开�
 
   renderPage('zh');
   await settle(8);
-  await clickTab('tabTimeline');
-  assert.match(text(), /时间线专用记忆/, '归档条目也应出现在时间线里');
-  assert.match(text(), new RegExp(escapeRe(makeT('zh')('tlHint').slice(0, 8))), '缺少时间线提示');
+  /* 档案视图的工具栏里只有排布下拉这一个 select。 */
+  const groupBySelect = mini
+    .findAllByTag(view, 'select')
+    .find((node) => ['none', 'tag', 'category', 'timeline'].includes(node.props.value));
+  assert.ok(groupBySelect, '找不到排布下拉');
   assert.ok(
     fetchCalls.some((call) => call.pathname === `${API_PREFIX}/timeline`),
-    '/timeline 未被调用',
+    '/timeline 应随页面加载（时间线排布的数据源）',
   );
+  groupBySelect.props.onChange({ target: { value: 'timeline' } });
+  await settle(10);
 
+  assert.match(text(), /时间线专用记忆/, '归档条目也应出现在时间线里');
   const item = mini
     .findAll(view, byClass('dshmem_tlItem'))
     .find((node) => mini.textOf(node).includes('时间线专用记忆'));
@@ -1040,10 +1081,10 @@ await test('时间线 tab：按日分组渲染含归档记忆，点条目打开�
   );
 });
 
-await test('健康 tab：KPI 与体检结果渲染，/health 真被调用', async () => {
+await test('维护 tab：KPI 与体检结果渲染，/health 真被调用', async () => {
   renderPage('zh');
   await settle(8);
-  await clickTab('tabHealth');
+  await clickTab('tabMaintain');
   const body = text();
   assert.match(body, new RegExp(escapeRe(makeT('zh')('healthKpiTotal'))), '缺少记忆总数 KPI');
   assert.match(body, new RegExp(escapeRe(makeT('zh')('healthToken'))), '缺少简报注入 KPI');
@@ -1051,7 +1092,7 @@ await test('健康 tab：KPI 与体检结果渲染，/health 真被调用', asyn
   assert.ok(fetchCalls.some((call) => call.pathname === `${API_PREFIX}/health`), '/health 未被调用');
 });
 
-await test('审批 tab：草稿批准后生效、拒绝后消失，无草稿时 tab 不出现', async () => {
+await test('维护页待审队列：草稿批准后生效、拒绝后消失，徽标随草稿数变化', async () => {
   const d1 = store.upsert(
     { title: '审批草稿甲', content: '甲草稿正文', status: 'draft', source: 'auto' },
     { workspace: WS },
@@ -1063,11 +1104,11 @@ await test('审批 tab：草稿批准后生效、拒绝后消失，无草稿时 
 
   renderPage('zh');
   await settle(8);
-  const queueTab = mini
-    .findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(makeT('zh')('tabQueue')))
+  const maintainTab = mini
+    .findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(makeT('zh')('tabMaintain')))
     .find((node) => mini.textOf(node).includes('2'));
-  assert.ok(queueTab, '有草稿时应出现审批 tab（带数量徽标）');
-  mini.click(queueTab);
+  assert.ok(maintainTab, '有草稿时维护 tab 应带数量徽标');
+  mini.click(maintainTab);
   await settle(8);
 
   const cards = mini.findAll(view, byClass('dshmem_draftCard'));
@@ -1099,11 +1140,10 @@ await test('审批 tab：草稿批准后生效、拒绝后消失，无草稿时 
 
   renderPage('zh');
   await settle(8);
-  assert.equal(
-    mini.findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(makeT('zh')('tabQueue'))).length,
-    0,
-    '无草稿时审批 tab 不该出现',
-  );
+  const bareTab = mini
+    .findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(makeT('zh')('tabMaintain')))
+    .find((node) => mini.textOf(node).trim() === makeT('zh')('tabMaintain'));
+  assert.ok(bareTab, '维护 tab 常驻');
 });
 
 /* ------------------------------------------------------------------ *

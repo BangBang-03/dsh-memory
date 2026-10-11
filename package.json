@@ -1,6 +1,6 @@
 {
   "name": "@bangbang-03/dsh-memory",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "DSH 工作区长期记忆：索引式简报省 token、轮末相关召回、memory 工具按需读写、版本链与体检、轮次结束自动提炼（可草稿审批），设置面板里可视化查看与管理。",
   "keywords": [
     "dsh",
