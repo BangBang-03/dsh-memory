@@ -1,0 +1,32 @@
+name: Publish npm package
+
+# 发 @bangbang-03/dsh-memory 到 GitHub Packages。
+# 本机 PAT 没有 write:packages（403 实测），而 Actions 的 GITHUB_TOKEN 对本仓库
+# 天然有 packages:write，所以发布走这里：推 v* 标签自动发，或手动 dispatch。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    # junction（安装套件真建 junction）只能在 Windows 上跑；runner 预装 pwsh。
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+
+      - name: Publish（prepublishOnly 会先跑全量测试）
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
