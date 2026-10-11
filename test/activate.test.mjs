@@ -319,7 +319,13 @@ await test('会话一开始，系统提示段就带上本工作区的记忆简�
 await test('记忆装不下时，简报会说明「只列了几条」而不是假装列全了', async () => {
   // 把字数上限压到刚好只能放 3 条（briefing 的规则：至少 3 条，之后看字数）。
   // 关掉 dedupe，否则这 5 条太像会被合并成 1 条（那是另一条测试覆盖的行为）。
-  const { calls, tool, exec, session } = activate({ briefingMaxChars: 260, briefingLimit: 12, dedupe: false });
+  // 截断说明只在全文模式里出现（索引模式一行一条，默认另测）。
+  const { calls, tool, exec, session } = activate({
+    briefingMaxChars: 260,
+    briefingLimit: 12,
+    dedupe: false,
+    briefMode: 'full',
+  });
   calls.events.find(([name]) => name === 'session/created')[1](session);
 
   for (let index = 0; index < 5; index += 1) {
@@ -348,7 +354,7 @@ await test('webServer 路由：state 认工作区、save 落库、list 回读', 
   assert.equal(state.body.ok, true);
   assert.equal(state.body.workspace.root, workspace);
   assert.equal(state.body.settings.briefing, true);
-  assert.equal(state.body.version, '0.1.0');
+  assert.equal(state.body.version, '0.3.0');
 
   const saved = await callRoute(route, {
     method: 'POST',
@@ -749,6 +755,120 @@ await test('既有记忆导入：扫描本机来源 → 按来源导入 → 真�
     if (previousProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = previousProfile;
   }
+});
+
+await test('索引模式简报（默认）：一行一条带 id、不展开正文、页脚提示验证', async () => {
+  const { calls, tool, exec, session } = activate();
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await tool.execute(
+    { action: 'save', title: '索引模式的记忆', content: '这条正文不该出现在索引简报里。'.repeat(3), category: 'fact' },
+    exec,
+  );
+  const briefing = calls.sections[0].text({ agent: { session } });
+  assert.match(briefing, /索引模式的记忆/, '索引应有标题');
+  assert.match(briefing, /`mem_[A-Za-z0-9_]+`/, '索引应带 id 供按需取正文');
+  assert.doesNotMatch(briefing, /这条正文不该出现在索引简报里/, '索引模式不该展开正文');
+  assert.match(briefing, /上面是索引/);
+  assert.match(briefing, /先验证它们现在还存在/, '页脚应有验证式过期提示');
+  // full 模式仍展开正文。
+  const { calls: fullCalls, tool: fullTool, exec: fullExec, session: fullSession } = activate({ briefMode: 'full' });
+  fullCalls.events.find(([name]) => name === 'session/created')[1](fullSession);
+  await fullTool.execute({ action: 'save', title: '全文模式的记忆', content: '全文正文在这里。', category: 'fact' }, fullExec);
+  assert.match(fullCalls.sections[0].text({ agent: { session: fullSession } }), /全文正文在这里。/);
+});
+
+await test('轮末召回：简报关掉时召回块独立工作，连续两轮不重复', async () => {
+  const { calls, tool, exec, session } = activate({ briefing: false });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await tool.execute(
+    { action: 'save', title: '构建命令是 pnpm build', content: '改完客户端半要重跑 pnpm build。', category: 'convention' },
+    exec,
+  );
+
+  // 当轮用户消息提到构建 → 命中该记忆 → 缓冲给下一轮。
+  session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '帮我跑一下构建命令，然后告诉我结果' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+  ];
+  onEvent(session, { type: 'turn/end' });
+  const briefing = calls.sections[0].text({ agent: { session } });
+  assert.match(briefing, /与当前话题相关的召回/, '应出现召回块');
+  assert.match(briefing, /构建命令是 pnpm build/);
+  assert.match(briefing, /改完客户端半要重跑/, '召回块带正文摘录');
+
+  // 连续第二轮同样的话题：上轮已召回的不重复注入。
+  onEvent(session, { type: 'turn/end' });
+  assert.doesNotMatch(
+    calls.sections[0].text({ agent: { session } }),
+    /与当前话题相关的召回/,
+    '连续两轮不该重复召回同一条',
+  );
+});
+
+await test('captureMode=draft：自动提炼先进队列，批准后才生效', async () => {
+  const { calls, route, session } = activate({
+    services: { llm: fakeLlm(DISTILL_REPLY) },
+    autoCapture: true,
+    captureMode: 'draft',
+    captureCooldownMs: 0,
+    autoCaptureMinChars: 100,
+  });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  const q = `?workspace=${encodeURIComponent(workspace)}`;
+
+  onEvent(session, { type: 'turn/end' });
+
+  const queued = await waitFor(async () => {
+    const queue = await callRoute(route, { url: `/memory/api/queue${q}` });
+    return queue.body.records.length > 0;
+  });
+  assert.ok(queued, '草稿应进待审队列');
+  const draft = (await callRoute(route, { url: `/memory/api/queue${q}` })).body.records[0];
+  assert.equal(draft.status, 'draft');
+
+  // 草稿不进默认列表（不进简报、不进检索是同一道过滤）。
+  const list = await callRoute(route, { url: `/memory/api/list${q}` });
+  assert.equal(list.body.records.length, 0);
+  // 提炼日志记 reason=drafted，与直接落库区分。
+  const state = await callRoute(route, { url: `/memory/api/state${q}` });
+  assert.equal(state.body.captures[0].reason, 'drafted');
+
+  const approved = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/queue/approve',
+    headers: { 'content-type': 'application/json', host: '127.0.0.1:19387' },
+    body: JSON.stringify({ id: draft.id }),
+  });
+  assert.equal(approved.status, 200);
+  assert.equal(approved.body.record.status, 'active');
+
+  const listAfter = await callRoute(route, { url: `/memory/api/list${q}` });
+  assert.equal(listAfter.body.records.length, 1, '批准后进默认列表');
+  assert.equal(listAfter.body.records[0].title, '插件基调用 DeepSeek 鲸鱼蓝');
+});
+
+await test('工具 save 带 supersedes：旧条归档，get 展示版本链', async () => {
+  const { tool, exec } = activate();
+  const old = await tool.execute(
+    { action: 'save', title: '旧构建结论', content: '用 webpack 构建', category: 'decision' },
+    exec,
+  );
+  const oldId = /`(mem_[A-Za-z0-9_]+)`/.exec(old.text)?.[1];
+  assert.ok(oldId);
+
+  const sup = await tool.execute(
+    { action: 'save', title: '新构建结论', content: '改用 vite 构建', category: 'decision', supersedes: oldId },
+    exec,
+  );
+  assert.match(sup.text, /归档被推翻的旧记忆/);
+
+  const newId = /`(mem_[A-Za-z0-9_]+)`/.exec(sup.text)?.[1];
+  const got = await tool.execute({ action: 'get', id: newId }, exec);
+  assert.match(got.text, /推翻了/, 'get 应展示版本链');
+
+  const listed = await tool.execute({ action: 'list' }, exec);
+  assert.equal(listed.count, 1, '旧条归档后 list 只剩新条');
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

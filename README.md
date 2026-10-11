@@ -2,15 +2,29 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-274%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-300%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
-DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy 的记忆交互：记忆以当前工作区为单位落库，
-会话开始时把最重要的几条注入系统提示，模型可以随时用 `memory` 工具读写，轮次结束时（可选）
-自动提炼，全部记忆都能在 **设置 → 记忆** 里查看和管理。
+DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
+会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
+模型可以随时读写，轮次结束后把与当轮话题相关的记忆**召回**进下一轮，还可以（可选）自动提炼——
+提炼结果可以直接落库，也可以先进**待审队列**由你批准。全部记忆都能在 **设置 → 记忆** 里管理：
+记忆库（档案 / 记忆空间 / 列表）、时间线、健康体检、审批队列。
 
-- 宿主半 `lib/index.js`：系统提示注入、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼。
-- 客户端半 `lib/client.js`：设置面板里的「记忆」页，三种视图可切——**档案**（默认，**一个工作区一份长记忆**：一篇连续的正文 + 两个行为开关，加记忆靠对话里说一句）/ **记忆空间**（按项目·全局分区、组内按标签归类）/ **列表**（平铺 + 标签云）；搜索、新建、编辑、置顶、归档、删除、整合、整理、导入导出、提炼、扫描本机既有记忆都在后两个管理视图里。
+- 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼。
+- 客户端半 `lib/client.js`：设置面板里的「记忆」页，五个 tab——**记忆库**（档案 / 记忆空间 / 列表三视图可切）、**时间线**、**健康**、**审批**（有草稿才出现）、自动提炼、设置。
 - 纯逻辑层：`lib/store.js`（存储）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
+
+## v0.3.0「百家记忆」：借鉴了谁
+
+| 来源 | 机制 | 本插件的落点 |
+| --- | --- | --- |
+| ZCode / Qoder | `MEMORY.md` 一行一条索引常驻，正文按需读取 | `briefMode: index`（默认）——简报只注入「标题 + 标签 + id」，同样字数预算下能装约 3 倍的条目，注入量降 60–70%；模型用 `memory get/search` 按需取全文 |
+| ZCode | 每轮后台召回相关记忆（已召回快照防重复） | `turnRecall`：轮次结束后拿当轮用户消息做本地检索，命中的记忆下一轮随简报注入「相关召回」块；连续两轮不重复，纯本地打分零模型开销 |
+| ZCode | 类型体系（feedback/user）+ Why/How to apply | 新增 `feedback`（协作纠正/肯定，提炼时按「规则 + Why + How to apply」组织正文）与 `user`（用户画像，强制全局）类别 |
+| ZCode | `[[related]]` 双链（悬空允许）、验证式过期 | 记录可带 `related` 关联；简报页脚固定提示「引用记忆里的路径/函数前先验证还存在」；体检列出待验证项 |
+| Qoder | 自动整理沉淀、版本回滚、可控写入 | 体检（重复簇/过期未用/断链）一键处理；`supersedes` 版本链——推翻不删除，旧条归档可一键回滚；`captureMode: draft` 提炼结果先进审批队列 |
+| WorkBuddy | 三层记忆（工作/知识/持久）、记忆管理面板 | 全局 / 工作区 / 会话召回三层在 UI 全景呈现；时间线视图 + 健康面板（KPI、token 估算、问题清单） |
+| Hindsight | 推翻不删除；引用署名 | supersede 版本链天然满足；简报与工具返回都带 id，模型可标注「（记忆 #id）」 |
 
 ## 记忆存在哪
 
@@ -37,6 +51,11 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy 的记忆交�
   "content": "package 进入 dsh.profile.bundles 后，其 cordis.patch.yml 会被自动应用。",
   "category": "convention",
   "tags": ["dsh", "plugin"],
+  "keywords": ["插件", "安装", "bundle"],
+  "related": [],
+  "supersedes": null,
+  "supersededBy": null,
+  "status": "active",
   "scope": "workspace",
   "source": "manual",
   "files": [],
@@ -52,18 +71,29 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy 的记忆交�
 ```
 
 类别：`fact` 事实、`preference` 偏好、`decision` 决策、`convention` 约定、`component` 组件、
-`task` 待办、`note` 笔记。来源：`manual` 手工 / `agent` 模型调用工具 / `auto` 自动提炼 / `import` 导入。
+`task` 待办、`note` 笔记、`feedback` 反馈（协作纠正/肯定）、`user` 用户画像（强制全局，跟着人走）。
+来源：`manual` 手工 / `agent` 模型调用工具 / `auto` 自动提炼 / `import` 导入。
+`status: "draft"` 的记忆是待审草稿：不进简报、不进检索、不进镜像，批准后才生效。
 
-## 三条记忆通路
+版本链：`save` 带 `supersedes`（或自动提炼识别出「情况已变」）时，新条生效、旧条归档并互指，
+面板里可以一键**回滚**——推翻不删除，历史一直在。
 
-1. **会话开始注入摘要**（`briefing`）。系统提示里多一段 `dsh-memory:workspace-briefing`
-   （order 550，夹在 PLAN_POLICY 500 与 TEAM_POLICY 600 之间），内容是当前工作区按
-   「置顶 → 最近使用 → 最近更新」排序的前 N 条，受 `briefingLimit` / `briefingMaxChars` 双重限制。
+## 四条记忆通路
+
+1. **会话开始注入索引**（`briefing`）。系统提示里多一段 `dsh-memory:workspace-briefing`
+   （order 550，夹在 PLAN_POLICY 500 与 TEAM_POLICY 600 之间）。默认 `briefMode: index`——
+   一行一条「📌 [类别] 标题 #标签 (id)」，正文不展开；切 `full` 则回到标题+正文摘录的旧形态。
+   两种模式都受 `briefingLimit` / `briefingMaxChars` 双重限制，页脚写明「正文按需取 + 引用前先验证」。
    工作区从 `context.agent.session.header.cwd` 现取，切换会话即切换记忆。
 2. **`memory` 工具**。模型可以 `save` / `search` / `list` / `get` / `update` / `forget` / `stats`。
-   保存时先做一次相似度探测，超过 0.72 就合并进已有那条（`dedupe` 可关）。
-3. **轮次结束自动提炼**（`autoCapture`，默认关）。监听 `session/event` 的 `turn/end`，
-   把最近一段对话交给同一路由的模型归纳成结构化记忆，按 `minConfidence` 过滤后落库。
+   保存时先做一次相似度探测，超过 0.72 就合并进已有那条（`dedupe` 可关）；带 `supersedes` 时走版本链；
+   `related` 把同主题的记忆串起来（允许悬空）；`keywords` 提升检索命中。
+3. **轮末相关召回**（`turnRecall`，默认开）。监听 `session/event` 的 `turn/end`，拿当轮最后一条用户消息
+   做一次本地打分检索，命中的记忆（排除已在简报与上轮已召回的）下一轮以「相关召回」块注入，并计一次使用。
+   纯本地计算，不花模型 token；`turnRecallLimit` 控制每轮条数。
+4. **轮次结束自动提炼**（`autoCapture`，默认关）。把最近一段对话交给同一路由的模型归纳成结构化记忆，
+   按 `minConfidence` 过滤。`captureMode: direct`（默认）直接落库；`captureMode: draft` 先落草稿进
+   **审批队列**，面板批准（可顺手改）后才生效——草稿若挂着 `supersedes`，批准即兑现版本链。
    刻意**不**监听 `agent/turn-stopping` —— 那个事件是串行 await 的，长活在它里面会拖住轮次收尾。
 
 ## 安装
@@ -175,11 +205,16 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `enabled` | `true` | 总开关 |
 | `directory` | `""` | 数据库位置，空 = `~/.dsh/storages/dsh-memory` |
 | `mirror` | `true` | 在工作区写 `.dsh-memory/MEMORY.md` |
-| `briefing` | `true` | 会话开始注入摘要 |
+| `briefing` | `true` | 会话开始注入记忆简报 |
+| `briefMode` | `"index"` | `index` 一行一条索引（省 token）；`full` 标题+正文摘录 |
 | `briefingLimit` | `12` | 注入条数上限（1–50） |
 | `briefingMaxChars` | `2000` | 注入字数上限（200–20000） |
+| `turnRecall` | `true` | 轮末按当轮内容召回相关记忆进下一轮 |
+| `turnRecallLimit` | `3` | 每轮召回条数（1–10） |
 | `sectionOrder` | `550` | 注入段落在系统提示里的位置 |
 | `autoCapture` | `false` | 轮次结束自动提炼 |
+| `captureMode` | `"direct"` | `direct` 直接落库；`draft` 先进待审队列 |
+| `staleDays` | `60` | 体检里「过期未用」的判定天数 |
 | `autoCaptureMinChars` | `600` | 太短的轮次不提炼 |
 | `captureCooldownMs` | `60000` | 两次提炼的最小间隔 |
 | `minConfidence` | `0.4` | 提炼结果的最低置信度 |
@@ -193,20 +228,38 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/state` | 版本、工作区、统计、设置、类别、工作区列表、标签、最近提炼 |
-| GET | `/list` | 列表；`q/category/scope/tag/archived/sort/limit/offset` |
-| POST | `/save` | 新建或合并 |
-| POST | `/update` | 改一条 |
+| GET | `/state` | 版本、工作区、统计、设置、类别、工作区列表、标签、最近提炼、最近简报计量 |
+| GET | `/list` | 列表；`q/category/scope/tag/archived/sort/limit/offset`（不含草稿） |
+| POST | `/save` | 新建或合并；带 `supersedes` 走版本链（旧条归档、可回滚） |
+| POST | `/update` | 改一条（含 `related` / `keywords`） |
 | POST | `/bulk` | `delete` / `archive` / `unarchive` / `pin` / `unpin` |
 | POST | `/delete` | 删一条 |
 | POST | `/settings` | 写设置 |
+| GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数（只报告） |
+| POST | `/health/resolve` | 一键处理：`merge`（合并簇）/ `archive`（归档过期）/ `unlink`（摘除断链） |
+| GET | `/timeline` | 全部记忆（含归档、不含草稿）按更新时间倒序 |
+| GET | `/queue` | 待审草稿队列 |
+| POST | `/queue/approve` | 批准草稿（可带编辑字段；草稿带 `supersedes` 时兑现版本链） |
+| POST | `/queue/reject` | 拒绝草稿（默认删除，`mode: archive` 归档留底） |
+| POST | `/supersede/rollback` | 版本链回滚：传新条 id 恢复旧条，或传旧条 id 撤销推翻 |
 | GET | `/export` / POST `/import` | 导出 / 导入（备份载荷、纯文本，或 `path`/`paths` 指到本机既有记忆文件） |
 | GET | `/import-scan` | 扫描本机既有记忆来源（Qoder / WorkBuddy / 本插件镜像），只读 |
 | POST | `/import-scan` | 按来源 id 或路径导入，用户级来源自动进全局库 |
 | GET | `/mirror` | 取当前工作区镜像的 Markdown |
-| POST | `/capture` | 立刻提炼一次 |
+| POST | `/capture` | 立刻提炼一次（`captureMode` 决定落库还是进队列） |
 | POST | `/distill` | 只返回候选，不落库 |
 | GET | `/ping` | 存活探测 |
+
+## 时间线 / 健康 / 审批
+
+- **时间线**：全部记忆（含归档）按更新时间倒序、按日分组，类别色签 + 来源 + 时刻，支持过滤；
+  点条目直接打开编辑器。回答「这条记忆是什么时候、为什么记下的」。
+- **健康**：KPI 卡（总数、利用率、待审草稿、最近一次简报注入的字符数与 token 粗估）+
+  体检问题清单——重复簇（一键合并，源条目归档可恢复）、过期未用（一键归档）、
+  断链（`related`/`supersedes` 指向不存在的记录，一键摘除）。
+- **审批**：`captureMode: draft` 时自动提炼的候选先进这里；每张草稿卡可**批准**、
+  **编辑后批准**（编辑字段随批准请求一起提交）、**拒绝**（默认删除，草稿从未生效）。
+  草稿不进简报、不进检索、不进镜像——批准之前对模型完全不可见。
 
 ## 导入本机既有的记忆
 
@@ -239,35 +292,34 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-8 个套件、274 项：
+8 个套件、300 项：
 
-- `store` 80 项 —— 工作区分库、去重合并、检索打分、镜像（含真在工作区落盘 / 关开关撤回 /
-  工作区不存在时不造目录）、导入导出、并发写。
+- `store` 90 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
+  工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
+  草稿四不可见、重复簇聚类与合并、体检（重复/过期/断链/草稿）、索引简报预算、镜像版本链线索、keywords 加权、unlink。
 - `markdown` 39 项 —— WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、格式识别、粗体子标题
   再切一层、Qoder 索引页剔除、本机扫描只读。
-- `distill` 37 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别。
-- `api` 50 项 —— 15 个端点、错误码、参数校验、按路径/文本导入与来源扫描。
+- `distill` 41 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别；v0.3.0：
+  keywords/supersedes 解析、user 类别强制 global、提示词 v2 指引、existingRecords 带 id。
+- `api` 55 项 —— 22 个端点、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
+  /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
+  /save 带 supersedes 与 /supersede/rollback。
 - `host` 10 项 —— 导出形状、Config 默认值与越界校验。
-- `activate` 20 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍：注册出来的工具能 save/search/get/
-  forget（走真实 store 并落盘）、系统提示段真的产出带记忆的简报（装不下时会明说「只列了 N / M 条」
-  而不是假装列全）、`/memory/api/*` 路由真的应答
-  且守好 403/404、手动提炼走假 LLM 端到端（候选预览不落库 / 提炼当前会话真落库 / 没接 LLM 时
-  给可读错误并留痕）、**轮次结束的自动提炼**（默认关着不烧 token / 开着时后台真落库并记进提炼日志 /
-  对话太短直接跳过 / LLM 卡住时轮次收尾照样立刻返回 / LLM 报错只记 `reason=error` 不影响读写）、
-  面板保存的记忆真落到工作区镜像且关掉开关当场撤回、既有记忆扫描导入端到端
-  （造出假的 `.workbuddy` 与 `~/.qoder` 落点，导入后工作区级进本库、用户级进全局库、来源文件不变）、
-  数据目录不可用时只告警不抛错（**单个 bundle 激活失败会让整个 DSH 外壳起不来，这一条是专门防它的**）。
-- `client` 29 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
+- `activate` 24 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
+  工具 save/search/get/forget、全文简报装不下时明说「只列了 N / M 条」、`/memory/api/*` 路由真的应答
+  且守好 403/404、手动提炼端到端、面板保存落到工作区镜像、既有记忆扫描导入、数据目录不可用不炸外壳；
+  v0.3.0：索引简报（带 id 不展开正文 + full 模式对照）、轮末召回（召回块出现、连续两轮不重复）、
+  captureMode=draft 全流程（进队列 → 不进列表 → 日志 drafted → 批准生效）、
+  工具 save 带 supersedes（旧条归档、get 展示版本链）。
+- `client` 32 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
   接到真实 `store` + `api` 上驱动交互（列表 / 搜索 / 新建 / 删除 / 置顶 / 中英文切换 / 后端报错）；
-  记忆空间另有 4 项：项目/全局分区且互不串、组内按标签归类、未归类排最后、折叠展开、
-  **整合**（预填合并稿 → 保存 → 新条目落库且原条目 `archived: true`）、视图互切与范围 chip 过滤；
-  档案视图 5 项：默认打开时是分区小标题 + 粗体标题 + 整段正文（且没有卡片/分组那些类名），
-  档案页里没有条数统计 chip / 搜索框并带「在对话里加记忆」提示（这些都只在列表视图），
-  **整篇编辑**（改正文 + 添条目 + 文档里消失的归档）、**整理**（多组各自合并、原条目归档）、
-  没有可整理的组时只提示不发写请求、两个行为开关即时写进 `/settings` 并在 `/state` 里读得回来。
+  记忆空间（分区/分组/整合）、档案视图（整篇编辑/整理/开关即时落库）；v0.3.0：
+  时间线 tab（含归档、点条目开编辑器）、健康 tab（KPI 与体检结果）、审批 tab（批准转正 / 拒绝删除 /
+  数量徽标 / 无草稿时 tab 消失）。
 - `install` 9 项 —— 在临时目录里搭假 DSH 主目录，真跑 `install.ps1` / `uninstall.ps1`：
   备份内容与原始一致、幂等、`-DryRun` 不落盘、卸载还原、`-PurgeStorage` 才删数据、
-  以及两种抵赖（包根不对 / junction 位置是真实目录时拒绝删除）。
+  以及两种抵赖（包根不对 / junction 位置是真实目录时拒绝删除）。测试对控制台编码自适应
+  （中文 Windows 的 GBK 代码页下 pwsh 输出按 GBK 解码，英文环境按 UTF-8）。
 
 `test/mini-react.mjs` 是为最后一个套件写的极小 hook 运行时（`createElement` + 5 个 hook +
 先序 fiber 复用），本机没有 React，也不需要 DSH 就能跑。

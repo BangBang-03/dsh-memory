@@ -272,6 +272,64 @@ test('hasExplicitHint: 普通文本不命中', () => {
   assert.equal(hasExplicitHint(null), false);
 });
 
+/* ---------------- v0.3.0：keywords / supersedes / user 作用域 ---------------- */
+
+test('parseDistillResponse：解析 keywords 与 supersedes，user 类别强制 global', () => {
+  const reply = JSON.stringify({
+    memories: [
+      {
+        title: '构建改用 vite',
+        content: '新构建链已落地',
+        category: 'decision',
+        tags: ['build'],
+        keywords: ['构建', 'vite', 'build'],
+        supersedes: 'mem_old_1',
+        confidence: 0.9,
+      },
+      { title: '用户是投研工程师', content: '角色画像', category: 'user', keywords: ['画像'], confidence: 0.8 },
+    ],
+  });
+  const parsed = parseDistillResponse(reply, { minConfidence: 0.4 });
+  assert.equal(parsed.length, 2);
+  assert.deepEqual(parsed[0].keywords, ['构建', 'vite', 'build']);
+  assert.equal(parsed[0].supersedes, 'mem_old_1');
+  assert.equal(parsed[0].scope, 'workspace');
+  assert.equal(parsed[1].scope, 'global', 'user 类别应强制 global');
+  assert.equal(parsed[1].supersedes, null);
+});
+
+test('parseDistillResponse：keywords / supersedes 缺省与越界都安全', () => {
+  const parsed = parseDistillResponse('{"memories":[{"title":"只有标题","category":"note","confidence":0.9}]}');
+  assert.deepEqual(parsed[0].keywords, []);
+  assert.equal(parsed[0].supersedes, null);
+  const clipped = parseDistillResponse(
+    '{"memories":[{"title":"t","category":"note","keywords":["a","b","c","d","e","f","g","h","i","j","k"],"confidence":0.9}]}',
+  );
+  assert.ok(clipped[0].keywords.length <= 8, 'keywords 越界应截断');
+});
+
+test('DISTILL_SYSTEM v2：要求 keywords、supersede 规则与 feedback/user 指引', () => {
+  assert.ok(DISTILL_SYSTEM.includes('"keywords"'));
+  assert.ok(DISTILL_SYSTEM.includes('supersedes'));
+  assert.ok(DISTILL_SYSTEM.includes('feedback'));
+  assert.ok(DISTILL_SYSTEM.includes('"user"'));
+  assert.match(DISTILL_SYSTEM, /How to apply/);
+});
+
+test('buildDistillInput：existingRecords 带 id，supersede 只在真矛盾时用', () => {
+  const input = buildDistillInput({
+    workspace: 'C:\\x',
+    transcript: '[]',
+    existingRecords: [{ id: 'mem_a1', title: '旧记忆' }],
+  });
+  assert.match(input, /mem_a1/, '已有记忆应带 id');
+  assert.match(input, /supersedes/i);
+  assert.match(input, /ONLY if the excerpt proves one wrong/);
+  // 兼容旧的 existingTitles 入参。
+  const legacy = buildDistillInput({ workspace: 'C:\\x', transcript: '[]', existingTitles: ['旧记忆'] });
+  assert.match(legacy, /旧记忆/);
+});
+
 /* ---------------- 结果 ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

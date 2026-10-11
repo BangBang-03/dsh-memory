@@ -197,7 +197,7 @@ test('parseMemoryText：Qoder 用 description 当标题、type 映射类别', ()
   assert.equal(format, 'qoder');
   assert.equal(records.length, 1);
   assert.equal(records[0].title, '用户与交付期望');
-  assert.equal(records[0].category, 'preference');
+  assert.equal(records[0].category, 'user', 'v0.3.0 起 Qoder 的 user 类型直通原生类别');
   assert.ok(records[0].tags.includes('qoder'));
   assert.ok(records[0].tags.includes('user'));
   assert.ok(records[0].tags.includes('user-delivery-expectations'));

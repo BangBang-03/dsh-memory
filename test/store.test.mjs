@@ -145,7 +145,7 @@ test('upsert: 落盘到 workspaces/<slug>-<hash>/memories.json', () => {
   const info = store.workspaceInfo(WS_A);
   assert.ok(fs.existsSync(info.dataFile), `期望存在 ${info.dataFile}`);
   const parsed = JSON.parse(fs.readFileSync(info.dataFile, 'utf8'));
-  assert.equal(parsed.schemaVersion, 1);
+  assert.equal(parsed.schemaVersion, 2);
   assert.equal(parsed.key, workspaceKey(WS_A));
   assert.equal(parsed.records.length, 1);
 });
@@ -512,8 +512,8 @@ test('rankRecords: 归档记录被排除', () => {
   assert.equal(rankRecords([{ ...base, id: 'a', archived: true }], { limit: 5 }).length, 0);
 });
 
-test('CATEGORIES: 覆盖 7 类且与标签表一致', () => {
-  assert.equal(CATEGORIES.length, 7);
+test('CATEGORIES: 覆盖 9 类且与标签表一致', () => {
+  assert.equal(CATEGORIES.length, 9);
   for (const c of CATEGORIES) assert.ok(typeof CATEGORY_LABELS[c] === 'string');
 });
 
@@ -618,6 +618,186 @@ test('镜像：removeWorkspaceMirror 显式撤掉文件（设置关掉镜像时�
   assert.equal(s.removeWorkspaceMirror(''), false, '全局记忆没有工作区镜像');
 });
 
+/* ---------------- v0.3.0：版本链 / 草稿 / 体检 / 索引简报 ---------------- */
+
+/* 这一组全部用独立 store：列表/检索/体检都会合并全局库，共享实例会跨用例串数据。 */
+const iso = (name) => createMemoryStore({ dir: path.join(tmp, `v03-${name}`) });
+
+test('supersede：旧条归档并回指新条，新条指回旧条', () => {
+  const s = iso('supersede');
+  const ws = makeWorkspace('v03-supersede');
+  const old = s.upsert({ title: '旧结论', content: '用 webpack 构建', category: 'decision' }, { workspace: ws });
+  const result = s.supersede(old.record.id, { title: '新结论', content: '改用 vite 构建', source: 'agent' }, { workspace: ws });
+  assert.ok(result.ok, 'supersede 应成功');
+  assert.equal(result.record.supersedes, old.record.id, '新条应指回旧条');
+  const oldAfter = s.get(old.record.id, { workspace: ws });
+  assert.equal(oldAfter.archived, true, '旧条应被归档');
+  assert.equal(oldAfter.supersededBy, result.record.id, '旧条应回指新条');
+  const listed = s.list({ workspace: ws }).records.map((r) => r.title);
+  assert.deepEqual(listed, ['新结论']);
+});
+
+test('rollback：从新条回滚恢复旧条；再从旧条撤销亦然', () => {
+  const s = iso('rollback');
+  const ws = makeWorkspace('v03-rollback');
+  const old = s.upsert({ title: '回滚旧条', content: 'A 方案', category: 'decision' }, { workspace: ws });
+  const sup = s.supersede(old.record.id, { title: '回滚新条', content: 'B 方案', source: 'agent' }, { workspace: ws });
+
+  const back = s.rollback(sup.record.id, { workspace: ws });
+  assert.ok(back.ok, '回滚应成功');
+  assert.equal(s.get(old.record.id, { workspace: ws }).archived, false, '旧条应恢复');
+  assert.equal(s.get(old.record.id, { workspace: ws }).supersededBy, null, '旧条应清掉回指');
+  assert.equal(s.get(sup.record.id, { workspace: ws }).archived, true, '新条应收起');
+
+  // 从旧条（带 supersededBy 的那端）再推翻一次也走回滚语义。
+  const sup2 = s.supersede(old.record.id, { title: '回滚新条2', content: 'C 方案', source: 'agent' }, { workspace: ws });
+  const undo = s.rollback(old.record.id, { workspace: ws });
+  assert.ok(undo.ok, '从旧条端回滚应成功');
+  assert.equal(s.get(old.record.id, { workspace: ws }).archived, false);
+  assert.equal(s.get(sup2.record.id, { workspace: ws }).archived, true);
+});
+
+test('user 类别强制全局：落库进全局库，改类别时跨库迁移', () => {
+  const s = iso('user-scope');
+  const ws = makeWorkspace('v03-user-scope');
+  const saved = s.upsert({ title: '用户画像', content: '用户是投研工程师', category: 'user' }, { workspace: ws });
+  assert.equal(saved.record.scope, 'global', 'user 类别应强制 global');
+  const forced = s.upsert({ title: '画像二', content: 'x', category: 'user', scope: 'workspace' }, { workspace: ws });
+  assert.equal(forced.record.scope, 'global');
+  const stats = s.stats({ workspace: ws });
+  assert.equal(stats.global, 2, '两条 user 记录都应落进全局库');
+  assert.equal(stats.total, 0, '工作区库里不该有它们');
+
+  // 普通记录改成 user 类别时要挪进全局库。
+  const moved = s.upsert({ title: '会挪库的记录', content: 'x', category: 'fact' }, { workspace: ws });
+  const after = s.update(moved.record.id, { category: 'user' }, { workspace: ws });
+  assert.equal(after.record.scope, 'global');
+  const reread = s.get(moved.record.id, { workspace: ws });
+  assert.ok(reread, '挪库后按工作区仍可读到（合并全局）');
+  assert.equal(reread.scope, 'global');
+});
+
+test('草稿：不进 list/search/briefing/镜像，includeDrafts 可见', () => {
+  const s = iso('drafts');
+  const ws = makeWorkspace('v03-drafts');
+  s.upsert({ title: '正式记忆', content: '已生效的内容', category: 'fact' }, { workspace: ws });
+  const draft = s.upsert({ title: '草稿记忆', content: '等待审批的内容', category: 'note', status: 'draft', source: 'auto' }, { workspace: ws });
+  assert.equal(draft.record.status, 'draft');
+
+  const listed = s.list({ workspace: ws }).records.map((r) => r.title);
+  assert.deepEqual(listed, ['正式记忆'], '默认列表不该有草稿');
+  assert.equal(s.search({ workspace: ws, query: '等待审批' }).length, 0, '检索不该命中草稿');
+  assert.equal(s.briefing({ workspace: ws, mode: 'index' }).some((r) => r.status === 'draft'), false, '简报不进草稿');
+
+  const withDrafts = s.list({ workspace: ws, includeDrafts: true }).records.map((r) => r.title);
+  assert.ok(withDrafts.includes('草稿记忆'), 'includeDrafts 时可见');
+
+  // 镜像也不写草稿：镜像在主库旁车，读回来确认。
+  const mirrorFile = path.join(path.dirname(s.workspaceInfo(ws).dataFile), 'MEMORY.md');
+  assert.ok(fs.existsSync(mirrorFile), '镜像应存在（有正式记忆）');
+  assert.doesNotMatch(fs.readFileSync(mirrorFile, 'utf8'), /草稿记忆/, '镜像不该出现草稿');
+
+  // 批准：update 成 active 后一切照旧可见。
+  s.update(draft.record.id, { status: 'active' }, { workspace: ws });
+  assert.equal(s.list({ workspace: ws }).records.length, 2);
+});
+
+test('findDuplicateClusters + consolidateCluster：相似条目聚类并合并归档', () => {
+  const s = iso('dup');
+  const ws = makeWorkspace('v03-dup');
+  const a = s.upsert({ title: '构建去重甲', content: '构建流程要走 withSession 封装并等待 ready' }, { workspace: ws });
+  const b = s.upsert({ title: '构建去重乙', content: '构建流程要走 withSession 封装并等待 ready' }, { workspace: ws });
+  s.upsert({ title: '毫不相关的记忆', content: '完全另一个话题的内容' }, { workspace: ws });
+
+  const clusters = s.findDuplicateClusters({ workspace: ws });
+  assert.equal(clusters.length, 1, '应聚出一个重复簇');
+  const ids = clusters[0].map((r) => r.id).sort();
+  assert.deepEqual(ids, [a.record.id, b.record.id].sort());
+
+  const merged = s.consolidateCluster(clusters[0].map((r) => r.id), { workspace: ws, title: '构建去重' });
+  assert.ok(merged.ok, '合并应成功');
+  assert.ok(merged.record.content.includes('甲') && merged.record.content.includes('乙'), '合并正文应含两条来源');
+  for (const id of merged.archivedIds) {
+    assert.equal(s.get(id, { workspace: ws }).archived, true, '来源条目应归档');
+  }
+  // 合并后体检不再报这一簇。
+  assert.equal(s.findDuplicateClusters({ workspace: ws }).length, 0);
+});
+
+test('health：重复簇 / 过期未用 / 断链 / 草稿数', () => {
+  const s = iso('health');
+  const ws = makeWorkspace('v03-health');
+  const dupA = s.upsert({ title: '体检重复甲', content: '同样的体检内容描述文本' }, { workspace: ws });
+  s.upsert({ title: '体检重复乙', content: '同样的体检内容描述文本' }, { workspace: ws });
+  const linked = s.upsert({ title: '带链接的记忆', content: 'x', related: [dupA.record.id, 'mem_missing'] }, { workspace: ws });
+  s.upsert({ title: '体检草稿', content: 'x', status: 'draft', source: 'auto' }, { workspace: ws });
+
+  // 造一条「过期未用」：直接改盘上的 updatedAt 再让 store 重读。
+  const stale = s.upsert({ title: '过期未用的记忆', content: 'x' }, { workspace: ws });
+  const dataFile = s.workspaceInfo(ws).dataFile;
+  const raw = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+  raw.records.find((r) => r.id === stale.record.id).updatedAt = new Date(Date.now() - 90 * 86400000).toISOString();
+  fs.writeFileSync(dataFile, JSON.stringify(raw, null, 2), 'utf8');
+  s.invalidate(ws);
+
+  const health = s.health({ workspace: ws, staleDays: 60 });
+  assert.equal(health.duplicates.length, 1, '应报一个重复簇');
+  assert.ok(health.stale.includes(stale.record.id), '应报过期未用');
+  const brokenTargets = health.broken.filter((b) => b.id === linked.record.id).map((b) => b.target);
+  assert.deepEqual(brokenTargets, ['mem_missing'], '应报悬空 related');
+  assert.equal(health.drafts, 1, '应报一条待审草稿');
+
+  // 修复：unlink 摘掉断链后体检干净。
+  s.unlink(linked.record.id, 'mem_missing', { workspace: ws });
+  const after = s.health({ workspace: ws, staleDays: 60 });
+  assert.equal(after.broken.length, 0, '断链修复后不该再报');
+});
+
+test('briefing({mode:"index"})：索引模式按行预算，更多条目进得了简报', () => {
+  const s = iso('index-brief');
+  const ws = makeWorkspace('v03-index-brief');
+  for (let i = 0; i < 6; i += 1) {
+    s.upsert({ title: `索引条目${i}`, content: '长正文'.repeat(80), category: 'fact' }, { workspace: ws });
+  }
+  const full = s.briefing({ workspace: ws, mode: 'full', limit: 12, maxChars: 700 });
+  const index = s.briefing({ workspace: ws, mode: 'index', limit: 12, maxChars: 700 });
+  assert.ok(full.length < index.length, `同样字数预算下索引模式应装下更多条（full=${full.length}, index=${index.length}）`);
+});
+
+test('renderMarkdown：草稿排除；版本链与关联渲染成人读线索', () => {
+  const s = iso('mirror-mark');
+  const ws = makeWorkspace('v03-mirror-mark');
+  const old = s.upsert({ title: '被推翻的旧条', content: '旧内容' }, { workspace: ws });
+  const sup = s.supersede(old.record.id, { title: '新条', content: '新内容', source: 'agent' }, { workspace: ws });
+  s.upsert({ title: '有草稿的条', content: 'x', status: 'draft', source: 'auto' }, { workspace: ws });
+
+  const md = s.renderMarkdown(ws);
+  assert.match(md, /↩ 替代了「被推翻的旧条」/, '版本链应渲染成线索');
+  assert.doesNotMatch(md, /旧内容/, '旧条已归档不该再出现在正文里');
+  assert.doesNotMatch(md, /有草稿的条/, '草稿不该出现在镜像里');
+  assert.ok(sup.ok);
+});
+
+test('keywords 参与检索加权', () => {
+  const s = iso('keywords');
+  const ws = makeWorkspace('v03-keywords');
+  s.upsert({ title: '普通标题甲', content: '正文里没提关键词', keywords: ['会话生命周期'] }, { workspace: ws });
+  s.upsert({ title: '无关记录', content: '完全另一个话题' }, { workspace: ws });
+  const hit = s.search({ workspace: ws, query: '会话生命周期' });
+  assert.ok(hit.length >= 1, 'keywords 应命中检索');
+  assert.equal(hit[0].title, '普通标题甲', 'keywords 命中的应排最前');
+});
+
+test('unlink：可摘掉指定断链，也可一键清空 related', () => {
+  const s = iso('unlink');
+  const ws = makeWorkspace('v03-unlink');
+  const rec = s.upsert({ title: '多链接', content: 'x', related: ['mem_a', 'mem_b'] }, { workspace: ws });
+  const one = s.unlink(rec.record.id, 'mem_a', { workspace: ws });
+  assert.deepEqual(one.record.related, ['mem_b'], '指定摘除应只去掉一个');
+  const all = s.unlink(rec.record.id, '', { workspace: ws });
+  assert.deepEqual(all.record.related, [], '不带 target 应清空');
+});
+
 /* ---------------- 结果 ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
@@ -627,3 +807,5 @@ try {
   /* ignore */
 }
 process.exit(failed ? 1 : 0);
+
+

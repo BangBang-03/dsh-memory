@@ -80,7 +80,7 @@ await test('GET /state 汇总面板首屏需要的全部信息', async () => {
   assert.equal(b.workspace.root, WS);
   assert.equal(b.workspace.key, workspaceKey(WS));
   assert.equal(b.settings.autoCapture, true);
-  assert.equal(b.categories.length, 7);
+  assert.equal(b.categories.length, 9);
   assert.equal(b.categories[0].label, '事实');
   assert.ok(Array.isArray(b.workspaces));
   assert.equal(b.captures.length, 1);
@@ -397,7 +397,7 @@ await test('POST /import 按 path 解析 Qoder frontmatter 并进全局库', asy
   const global = await call('GET', '/list', { query: { workspace: '', key: '_global' } });
   const imported = global.body.records.find((r) => r.title === '用户与交付期望');
   assert.ok(imported, 'Qoder 记忆应进全局库');
-  assert.equal(imported.category, 'preference');
+  assert.equal(imported.category, 'user', 'Qoder 的 user 类型直通原生类别');
   assert.equal(imported.scope, 'global');
   assert.equal(imported.source, 'import');
 });
@@ -450,6 +450,116 @@ await test('POST /import-scan 什么都没选中时 400 nothing_selected', async
   assert.equal(res.status, 400);
   assert.equal(res.body.error, 'nothing_selected');
   assert.ok(Array.isArray(res.body.detail.sources));
+});
+
+/* ---------------- v0.3.0：体检 / 时间线 / 审批队列 / 版本链 ---------------- */
+
+await test('POST /save 带 supersedes 走版本链；/supersede/rollback 可回滚', async () => {
+  const old = await call('POST', '/save', { body: { title: '版本旧条', content: 'webpack 时代', category: 'decision' } });
+  const sup = await call('POST', '/save', {
+    body: { title: '版本新条', content: 'vite 时代', category: 'decision', supersedes: old.body.record.id },
+  });
+  assert.equal(sup.status, 200);
+  assert.equal(sup.body.superseded.id, old.body.record.id);
+  assert.equal(store.get(old.body.record.id, { workspace: WS }).archived, true, '旧条应被归档');
+
+  const bad = await call('POST', '/save', { body: { title: 'x', content: 'y', supersedes: 'mem_nope' } });
+  assert.equal(bad.status, 404);
+  assert.equal(bad.body.error, 'supersede_target_not_found');
+
+  const rb = await call('POST', '/supersede/rollback', { body: { id: sup.body.record.id } });
+  assert.equal(rb.status, 200);
+  assert.equal(rb.body.restored, old.body.record.id);
+  assert.equal(store.get(old.body.record.id, { workspace: WS }).archived, false, '回滚后旧条应恢复');
+});
+
+await test('GET /health 报告重复、断链与草稿；POST /health/resolve 一键处理', async () => {
+  await call('POST', '/save', { body: { title: '体检重复甲', content: '体检专用的重复内容描述' } });
+  await call('POST', '/save', { body: { title: '体检重复乙', content: '体检专用的重复内容描述' } });
+  const linked = await call('POST', '/save', { body: { title: '断链条目', content: 'x', related: ['mem_missing'] } });
+  store.upsert({ title: 'API 体检草稿', content: 'x', status: 'draft', source: 'auto' }, { workspace: WS });
+
+  const health = await call('GET', '/health');
+  assert.equal(health.status, 200);
+  assert.ok(health.body.health.duplicates.length >= 1, '应报重复簇');
+  assert.ok(health.body.health.broken.some((b) => b.target === 'mem_missing'), '应报断链');
+  assert.ok(health.body.health.drafts >= 1, '应报草稿数');
+  assert.ok(health.body.health.duplicates[0][0].title, '重复簇应带标题方便展示');
+
+  // 共享 store 里可能有别的测试留下的重复簇，定位本用例造的那一簇。
+  const dupCluster = health.body.health.duplicates.find((cluster) =>
+    cluster.some((item) => item.title === '体检重复甲'),
+  );
+  assert.ok(dupCluster, '应报出体检重复簇');
+  const merged = await call('POST', '/health/resolve', {
+    body: { action: 'merge', ids: dupCluster.map((item) => item.id), title: '体检合并' },
+  });
+  assert.equal(merged.status, 200);
+  assert.ok(merged.body.merged.content.includes('甲'), '合并正文应含来源');
+
+  const unlink = await call('POST', '/health/resolve', {
+    body: { action: 'unlink', id: linked.body.record.id, target: 'mem_missing' },
+  });
+  assert.equal(unlink.status, 200);
+  const after = await call('GET', '/health');
+  assert.equal(after.body.health.broken.filter((b) => b.target === 'mem_missing').length, 0, '断链应被摘除');
+
+  const bad = await call('POST', '/health/resolve', { body: { action: 'nope' } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, 'bad_action');
+});
+
+await test('GET /timeline：含归档，按更新时间倒序', async () => {
+  const first = await call('POST', '/save', { body: { title: '时间线甲', content: 'x' } });
+  await call('POST', '/update', { body: { id: first.body.record.id, archived: true } });
+  await call('POST', '/save', { body: { title: '时间线乙', content: 'x' } });
+  const tl = await call('GET', '/timeline');
+  const titles = tl.body.records.map((r) => r.title);
+  assert.ok(titles.includes('时间线甲'), '归档条目也应在时间线里');
+  assert.ok(titles.indexOf('时间线乙') < titles.indexOf('时间线甲'), '应按更新时间倒序');
+});
+
+await test('草稿队列：/queue 可见 → /queue/approve 生效（带编辑）→ /queue/reject 删除', async () => {
+  const draft = store.upsert(
+    { title: '待审草稿', content: '草稿正文', category: 'note', status: 'draft', source: 'auto' },
+    { workspace: WS },
+  );
+  const queue = await call('GET', '/queue');
+  assert.ok(queue.body.records.some((r) => r.id === draft.record.id), '草稿应在队列里');
+  const normal = await call('GET', '/list');
+  assert.equal(normal.body.records.some((r) => r.id === draft.record.id), false, '草稿不进默认列表');
+
+  const approved = await call('POST', '/queue/approve', {
+    body: { id: draft.record.id, title: '批准后的标题', category: 'fact' },
+  });
+  assert.equal(approved.status, 200);
+  assert.equal(approved.body.record.status, 'active');
+  assert.equal(approved.body.record.title, '批准后的标题');
+  assert.equal(approved.body.record.category, 'fact');
+  assert.ok((await call('GET', '/list')).body.records.some((r) => r.id === draft.record.id), '批准后进默认列表');
+
+  const draft2 = store.upsert({ title: '要拒绝的草稿', content: 'x', status: 'draft', source: 'auto' }, { workspace: WS });
+  const rejected = await call('POST', '/queue/reject', { body: { id: draft2.record.id } });
+  assert.equal(rejected.body.removed, draft2.record.id);
+  assert.equal(store.get(draft2.record.id, { workspace: WS, includeDrafts: true }), null, '拒绝即删除');
+
+  const missing = await call('POST', '/queue/approve', { body: { id: 'mem_nope' } });
+  assert.equal(missing.status, 404);
+});
+
+await test('草稿带 supersedes：批准即兑现版本链，草稿被新头取代', async () => {
+  const old = await call('POST', '/save', { body: { title: '链上旧条', content: '旧结论', category: 'decision' } });
+  const draft = store.upsert(
+    { title: '链上草稿', content: '新结论', category: 'decision', status: 'draft', source: 'auto', supersedes: old.body.record.id },
+    { workspace: WS },
+  );
+  const approved = await call('POST', '/queue/approve', { body: { id: draft.record.id } });
+  assert.equal(approved.status, 200);
+  assert.equal(approved.body.superseded.id, old.body.record.id, '批准应兑现版本链');
+  assert.equal(approved.body.record.supersedes, old.body.record.id);
+  assert.notEqual(approved.body.record.id, draft.record.id, '新头应是新 id（草稿 id 不复用）');
+  assert.equal(store.get(old.body.record.id, { workspace: WS }).archived, true);
+  assert.equal(store.get(draft.record.id, { workspace: WS, includeDrafts: true }), null, '草稿应被移除');
 });
 
 

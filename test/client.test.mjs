@@ -970,6 +970,119 @@ await test('后端出错时页面显示错误而不是白屏', async () => {
   }
 });
 
+/* ---------------- v0.3.0：时间线 / 健康 / 审批 ---------------- */
+
+/** tab 按钮可能带数量徽标（如「审批 2」），用 includes 而不是全等。 */
+const clickTab = async (key, locale = 'zh') => {
+  const label = makeT(locale)(key);
+  const button = mini
+    .findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(label))
+    .find((node) => mini.textOf(node).trim().startsWith(label));
+  assert.ok(button, `找不到 tab：${label}`);
+  mini.click(button);
+  await settle(8);
+};
+
+await test('时间线 tab：按日分组渲染含归档记忆，点条目打开编辑器', async () => {
+  const saved = await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/save`,
+    body: { workspace: WS, title: '时间线专用记忆', content: '时间线正文。' },
+  });
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/update`,
+    body: { workspace: WS, id: saved.body.record.id, archived: true },
+  });
+
+  renderPage('zh');
+  await settle(8);
+  await clickTab('tabTimeline');
+  assert.match(text(), /时间线专用记忆/, '归档条目也应出现在时间线里');
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('tlHint').slice(0, 8))), '缺少时间线提示');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/timeline`),
+    '/timeline 未被调用',
+  );
+
+  const item = mini
+    .findAll(view, byClass('dshmem_tlItem'))
+    .find((node) => mini.textOf(node).includes('时间线专用记忆'));
+  assert.ok(item, '找不到时间线条目');
+  mini.click(item);
+  await settle(6);
+  assert.ok(
+    mini.findAllByTag(view, 'textarea').some((node) => node.props.placeholder === makeT('zh')('fContentPh')),
+    '点时间线条目应打开编辑器',
+  );
+});
+
+await test('健康 tab：KPI 与体检结果渲染，/health 真被调用', async () => {
+  renderPage('zh');
+  await settle(8);
+  await clickTab('tabHealth');
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('healthKpiTotal'))), '缺少记忆总数 KPI');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('healthToken'))), '缺少简报注入 KPI');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('healthProblems'))), '缺少体检结果区');
+  assert.ok(fetchCalls.some((call) => call.pathname === `${API_PREFIX}/health`), '/health 未被调用');
+});
+
+await test('审批 tab：草稿批准后生效、拒绝后消失，无草稿时 tab 不出现', async () => {
+  const d1 = store.upsert(
+    { title: '审批草稿甲', content: '甲草稿正文', status: 'draft', source: 'auto' },
+    { workspace: WS },
+  );
+  const d2 = store.upsert(
+    { title: '审批草稿乙', content: '乙草稿正文', status: 'draft', source: 'auto' },
+    { workspace: WS },
+  );
+
+  renderPage('zh');
+  await settle(8);
+  const queueTab = mini
+    .findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(makeT('zh')('tabQueue')))
+    .find((node) => mini.textOf(node).includes('2'));
+  assert.ok(queueTab, '有草稿时应出现审批 tab（带数量徽标）');
+  mini.click(queueTab);
+  await settle(8);
+
+  const cards = mini.findAll(view, byClass('dshmem_draftCard'));
+  assert.equal(cards.length, 2, '应有两张草稿卡');
+
+  const approveBtn = mini.findByText(
+    cards.find((card) => mini.textOf(card).includes('甲')),
+    makeT('zh')('queueApprove'),
+    'button',
+  );
+  assert.ok(approveBtn, '找不到批准按钮');
+  mini.click(approveBtn);
+  await settle(12);
+  assert.equal(
+    store.get(d1.record.id, { workspace: WS, includeDrafts: true }).status,
+    'active',
+    '批准后草稿应转正',
+  );
+
+  const cardB = mini
+    .findAll(view, byClass('dshmem_draftCard'))
+    .find((card) => mini.textOf(card).includes('乙'));
+  assert.ok(cardB, '乙草稿卡应还在队列里');
+  confirmAnswer = true;
+  mini.click(mini.findByText(cardB, makeT('zh')('queueReject'), 'button'));
+  await settle(12);
+  assert.equal(store.get(d2.record.id, { workspace: WS, includeDrafts: true }), null, '拒绝即删除');
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('queueEmpty'))), '处理完后队列应显示为空');
+
+  renderPage('zh');
+  await settle(8);
+  assert.equal(
+    mini.findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(makeT('zh')('tabQueue'))).length,
+    0,
+    '无草稿时审批 tab 不该出现',
+  );
+});
+
 /* ------------------------------------------------------------------ *
  * 结果
  * ------------------------------------------------------------------ */

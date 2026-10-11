@@ -66,15 +66,34 @@ function seed() {
   fs.writeFileSync(path.join(fakePkg, 'lib', 'index.js'), 'export function apply() {}\n', 'utf8');
 }
 
+/**
+ * pwsh 的管道输出编码跟着控制台代码页走：中文 Windows（CP936）上它吐 GBK 字节，
+ * 英文环境/强制 UTF-8 的机器上则是 UTF-8。先按 UTF-8 解，出现替换符再按 GBK 重解，
+ * 断言在两种机器上都成立。
+ */
+function decodeConsole(buffer) {
+  const utf8 = Buffer.from(buffer).toString('utf8');
+  if (!utf8.includes('\uFFFD')) return utf8;
+  try {
+    return new TextDecoder('gbk').decode(buffer);
+  } catch {
+    return utf8;
+  }
+}
+
 /** 跑脚本；返回 { status, stdout, stderr }。 */
 function runScript(script, args) {
   const result = spawnSync(
     'pwsh',
     ['-NoProfile', '-NonInteractive', '-File', path.join(pkgRoot, script), ...args],
-    { encoding: 'utf8' },
+    { encoding: 'buffer' },
   );
   if (result.error) throw result.error;
-  return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
+  return {
+    status: result.status,
+    stdout: result.stdout ? decodeConsole(result.stdout) : '',
+    stderr: result.stderr ? decodeConsole(result.stderr) : '',
+  };
 }
 
 const install = (extra = []) => runScript('install.ps1', ['-Profile', 'desktop', '-DshHome', fakeHome, '-PackageRoot', fakePkg, ...extra]);
