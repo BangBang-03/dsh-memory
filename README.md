@@ -130,17 +130,22 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
      -Target "$env:USERPROFILE\.dsh\profiles\node_modules\@deepseek-ai"
    ```
 
-2. 在 `~/.dsh/profiles/desktop/package.json` 里加两处：
-   - `dsh.profile.bundles` 数组加一项 `dsh-memory`
-   - `dependencies` 加 `"dsh-memory": "link:<$repo 的绝对路径，正斜杠>"`
+2. 在 `~/.dsh/profiles/desktop/package.json` 里加两处（都用**真包名**）：
+   - `dsh.profile.bundles` 数组加一项 `@bangbang-03/dsh-memory`
+   - `dependencies` 加 `"@bangbang-03/dsh-memory": "link:<$repo 的绝对路径，正斜杠>"`
 
    进了 `dsh.profile.bundles` 之后，包自己的 `cordis.patch.yml` 会被自动应用，
    **不需要**改 profile 的 `cordis.patch.yml`。写盘走「临时文件 + 替换」，不直接覆写。
 
+   > ⚠️ **依赖键、bundles 项、`cordis.patch.yml` 的 `name`、客户端模块 id 必须是同一个真包名**
+   > （= `package.json` 的 `name`）。客户端半的浏览器模块按 manifest 包名认领，写成别名时宿主半
+   > 照常工作、设置面板里的界面却**整块消失**（0.3.2 改包名时踩过，0.3.4 修）。`install.ps1`
+   > 会自动把 0.3.2 之前的老别名 `dsh-memory` 迁移掉。
+
 3. 建 junction：
 
    ```powershell
-   New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-memory" `
+   New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\@bangbang-03\dsh-memory" `
      -Target $repo
    ```
 
@@ -370,8 +375,10 @@ npm test          # 或 node test/run-all.mjs
   档案视图的分区与两种排布（整篇文档 / 按标签分组 / 按类型分组、分区与分组折叠、组头「整合」、
   整篇编辑、整理永远按标签算、开关即时落库；v0.3.1：档案与记忆空间合并成同一个视图）；v0.3.3：变化横幅与注入预览（/briefing-preview 被调用、✓ 简报标记、横幅展开）、时间线并入档案排布
   （下拉切换、含归档）、维护 tab 合并（体检 KPI + 待审队列批准/拒绝/徽标）。
-- `install` 9 项 —— 在临时目录里搭假 DSH 主目录，真跑 `install.ps1` / `uninstall.ps1`：
+- `install` 16 项 —— 在临时目录里搭假 DSH 主目录，真跑 `install.ps1` / `uninstall.ps1`：
   备份内容与原始一致、幂等、`-DryRun` 不落盘、卸载还原、`-PurgeStorage` 才删数据、
+  0.3.2 之前的老别名安装会被自动迁移（清 bundles / dependencies 条目 + 摘旧 junction）、
+  `-FromNpm` / `-FromUrl` 对着假 registry 真跑 HTTP 全流程（含 token 头与重跑即更新），
   以及两种抵赖（包根不对 / junction 位置是真实目录时拒绝删除）。测试对控制台编码自适应
   （中文 Windows 的 GBK 代码页下 pwsh 输出按 GBK 解码，英文环境按 UTF-8）。
 

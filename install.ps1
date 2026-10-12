@@ -11,10 +11,15 @@
        （profile 用 junction 挂载本包时，Node 按 realpath 解析，源码目录向上找不到
         profile 的 node_modules，缺这层垫片宿主半就 import 不到 @deepseek-ai/*。）
     2. 在 <profile>/package.json 里
-         dsh.profile.bundles += "dsh-memory"
-         dependencies["dsh-memory"] = "link:<本包路径>"
+         dsh.profile.bundles += "@bangbang-03/dsh-memory"
+         dependencies["@bangbang-03/dsh-memory"] = "link:<本包路径>"
        进了 bundles 之后包自带的 cordis.patch.yml 会被自动应用，不用改 profile 的 patch 文件。
-    3. <profile>/node_modules/dsh-memory -> <本包路径>（junction）
+    3. <profile>/node_modules/@bangbang-03/dsh-memory -> <本包路径>（junction）
+
+  依赖键 / bundles 项 / cordis 行名 / 客户端模块 id 必须都是**同一个真包名**：客户端半的
+  浏览器模块按 package.json 的 name 认领，任何一处写成别名，宿主半照常工作但设置面板里的
+  界面会整块消失（0.3.2 改成 @bangbang-03/dsh-memory 时漏了这个，0.3.4 修）。老装法用的
+  别名 `dsh-memory` 会被本脚本自动迁移掉（清条目 + 摘 junction）。
 
   改 package.json 前一定先备份；写盘用「临时文件 + 替换」，避免上次那种截断事故。
 
@@ -69,7 +74,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$PackageName = 'dsh-memory'
+
+# 真包名：依赖键 / bundles 项 / cordis 行名 / 客户端模块 id 都得是它（见文件头说明）。
+$PackageName = '@bangbang-03/dsh-memory'
+# 0.3.2 之前用的别名（依赖键与 junction 都叫这个），装过就自动迁移掉。
+$LegacyName = 'dsh-memory'
+# 远程包解包目录：路径稳定、不跟包名走，重跑 -FromNpm/-FromUrl 时原地替换旧版本。
+$RemoteDirName = 'dsh-memory'
 
 function Write-Step([string]$Text) { Write-Host "  $Text" }
 
@@ -139,7 +150,7 @@ $pkgRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
 # ---------------------------------------------------------------- #
 
 if ($FromNpm -or $FromUrl) {
-  $remoteTarget = Join-Path (Join-Path $DshHome 'plugins') $PackageName
+  $remoteTarget = Join-Path (Join-Path $DshHome 'plugins') $RemoteDirName
   $tarball = ''
   $specLabel = ''
   $npmName = ''
@@ -256,6 +267,44 @@ if (-not (Test-Path -LiteralPath (Join-Path $pkgRoot 'cordis.patch.yml'))) {
 $profileDir = Join-Path (Join-Path $DshHome 'profiles') $Profile
 $profileJson = Join-Path $profileDir 'package.json'
 if (-not (Test-Path -LiteralPath $profileJson)) { throw "找不到 profile 的 package.json：$profileJson" }
+
+# ---------------------------------------------------------------- #
+# 迁移：0.3.2 之前用别名 dsh-memory 装过的话，先清掉别名条目与那层 junction。
+# 别名留着会被同名加载两次，而且客户端半根本注册不上 —— 设置面板整块消失。
+# ---------------------------------------------------------------- #
+$legacyLink = Join-Path (Join-Path $profileDir 'node_modules') $LegacyName
+$legacyRaw = Get-Content -LiteralPath $profileJson -Raw
+$legacyJson = $legacyRaw | ConvertFrom-Json
+$legacyBundles = @($legacyJson.dsh.profile.bundles) -contains $LegacyName
+$legacyDep = $legacyJson.dependencies -and ($legacyJson.dependencies.PSObject.Properties.Name -contains $LegacyName)
+if ($legacyBundles -or $legacyDep) {
+  if ($DryRun) {
+    Write-Step "[dry] 会把旧别名 $LegacyName 从 bundles / dependencies 里清掉"
+  } else {
+    $backup = Get-BackupPath $profileJson
+    Copy-Item -LiteralPath $profileJson -Destination $backup -Force
+    Write-Step "迁移旧别名 $LegacyName -> $PackageName（备份 -> $(Split-Path -Leaf $backup)）"
+    if ($legacyBundles) {
+      $legacyJson.dsh.profile.bundles = @($legacyJson.dsh.profile.bundles | Where-Object { $_ -ne $LegacyName })
+      Write-Step "bundles -= $LegacyName"
+    }
+    if ($legacyDep) {
+      $legacyJson.dependencies.PSObject.Properties.Remove($LegacyName)
+      Write-Step "dependencies -= $LegacyName"
+    }
+    Save-Json -Path $profileJson -Object $legacyJson
+    Write-Step "写入 $profileJson"
+  }
+}
+if (Test-Path -LiteralPath $legacyLink) {
+  $legacyItem = Get-Item -LiteralPath $legacyLink -Force
+  if ($legacyItem.LinkType -eq 'Junction' -or $legacyItem.LinkType -eq 'SymbolicLink') {
+    Write-Step "摘掉旧别名 junction $legacyLink"
+    if (-not $DryRun) { cmd /c rmdir "$legacyLink" | Out-Null }
+  } else {
+    Write-Warning "旧别名位置是真实目录，保留不动（自己确认后手工删）：$legacyLink"
+  }
+}
 
 $sharedModules = Join-Path (Join-Path $DshHome 'profiles') 'node_modules'
 if (-not (Test-Path -LiteralPath (Join-Path $sharedModules '@deepseek-ai'))) {

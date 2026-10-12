@@ -308,7 +308,10 @@ console.log('dsh-memory client half');
 
 await test('模块通过 __ModuleLoader__.load 注册，id 与包名一致', () => {
   assert.ok(loaded, 'client.js 没有调用 window.__ModuleLoader__.load');
-  assert.equal(loaded.id, 'dsh-memory');
+  const pkgName = JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.json'), 'utf8')).name;
+  /* 模块系统按 manifest 包名认领浏览器模块：id 不一致时客户端半根本不会激活
+     （宿主半照常工作，界面却整块消失）——所以这里必须对着 package.json 断言。 */
+  assert.equal(loaded.id, pkgName, `模块 id 必须等于 package.json 的 name（${pkgName}）`);
   assert.equal(typeof loaded.exports.apply, 'function');
   assert.deepEqual(loaded.exports.inject, ['slots', 'locale']);
   assert.equal(loaded.exports.name, 'dsh-memory');

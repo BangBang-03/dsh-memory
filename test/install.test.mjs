@@ -61,8 +61,8 @@ function seed() {
 
   fs.rmSync(fakePkg, { recursive: true, force: true });
   fs.mkdirSync(path.join(fakePkg, 'lib'), { recursive: true });
-  fs.writeFileSync(path.join(fakePkg, 'cordis.patch.yml'), '- insert:\n    - id: dsh-memory\n      name: dsh-memory\n', 'utf8');
-  fs.writeFileSync(path.join(fakePkg, 'package.json'), '{"name":"dsh-memory","version":"0.1.0"}\n', 'utf8');
+  fs.writeFileSync(path.join(fakePkg, 'cordis.patch.yml'), `- insert:\n    - id: dsh-memory\n      name: '${PKG_NAME}'\n`, 'utf8');
+  fs.writeFileSync(path.join(fakePkg, 'package.json'), `${JSON.stringify({ name: PKG_NAME, version: '0.1.0' })}\n`, 'utf8');
   fs.writeFileSync(path.join(fakePkg, 'lib', 'index.js'), 'export function apply() {}\n', 'utf8');
 }
 
@@ -109,8 +109,14 @@ function linkTarget(target) {
 }
 
 const shimPath = path.join(fakePkg, 'node_modules', '@deepseek-ai');
-const profileLink = path.join(profileDir, 'node_modules', 'dsh-memory');
+/* 真包名：依赖键 / bundles 项 / cordis 行名 / 客户端模块 id 都是它（0.3.2 起）。 */
+const PKG_NAME = '@bangbang-03/dsh-memory';
+/* 0.3.2 之前的老别名，装过的话要能被安装脚本迁移掉。 */
+const LEGACY_NAME = 'dsh-memory';
+const profileLink = path.join(profileDir, 'node_modules', '@bangbang-03', 'dsh-memory');
+const legacyLink = path.join(profileDir, 'node_modules', LEGACY_NAME);
 const sharedModules = path.join(fakeHome, 'profiles', 'node_modules', '@deepseek-ai');
+/* 记忆数据目录名不跟包名走（lib/store.js 里写死 dsh-memory）。 */
 const storageDir = path.join(fakeHome, 'storages', 'dsh-memory');
 
 /* ------------------------------------------------------------------ *
@@ -128,10 +134,10 @@ await test('install.ps1 把包挂进 bundles、dependencies 与 junction，并�
   const profile = readProfile();
   assert.deepEqual(
     profile.dsh.profile.bundles,
-    [...ORIGINAL_PROFILE.dsh.profile.bundles, 'dsh-memory'],
+    [...ORIGINAL_PROFILE.dsh.profile.bundles, PKG_NAME],
     'bundles 没有正确追加（应追加到末尾，且保留原有顺序）',
   );
-  assert.equal(profile.dependencies['dsh-memory'], `link:${fakePkg.replace(/\\/g, '/')}`);
+  assert.equal(profile.dependencies[PKG_NAME], `link:${fakePkg.replace(/\\/g, '/')}`);
   assert.equal(profile.dependencies['dsh-context'], '0.66.1', '原有依赖被改动了');
   assert.equal(profile.name, 'dsh-profile-desktop', '原有字段丢失');
 
@@ -165,6 +171,31 @@ await test('install.ps1 -DryRun 不落盘', () => {
   assert.equal(fs.existsSync(profileLink), false, 'dry run 建了 junction');
 });
 
+await test('install.ps1 迁移 0.3.2 之前的老别名安装（清条目 + 摘 junction）', () => {
+  seed();
+  /* 手工搭出老装法：依赖键 / bundles 项 / junction 名全是别名 dsh-memory。 */
+  const legacyProfile = JSON.parse(fs.readFileSync(profileJson, 'utf8'));
+  legacyProfile.dependencies[LEGACY_NAME] = `link:${fakePkg.replace(/\\/g, '/')}`;
+  legacyProfile.dsh.profile.bundles = [...legacyProfile.dsh.profile.bundles, LEGACY_NAME];
+  fs.writeFileSync(profileJson, `${JSON.stringify(legacyProfile, null, 2)}\n`, 'utf8');
+  fs.symlinkSync(fakePkg, legacyLink, 'junction');
+
+  const result = install();
+  assert.equal(result.status, 0, `退出码 ${result.status}\n${result.stdout}\n${result.stderr}`);
+
+  const profile = readProfile();
+  assert.equal(LEGACY_NAME in profile.dependencies, false, '旧别名依赖没清掉');
+  assert.equal(profile.dsh.profile.bundles.includes(LEGACY_NAME), false, '旧别名 bundles 项没清掉');
+  assert.equal(
+    profile.dsh.profile.bundles.filter((n) => n === PKG_NAME).length,
+    1,
+    '真包名应恰好一条（别名胜下一条会双份加载）',
+  );
+  assert.equal(profile.dependencies[PKG_NAME], `link:${fakePkg.replace(/\\/g, '/')}`);
+  assert.equal(fs.existsSync(legacyLink), false, '旧别名 junction 没摘掉');
+  assert.ok(fs.lstatSync(profileLink).isSymbolicLink(), '新的正经 junction 没建');
+});
+
 await test('install.ps1 抵赖：包根不对就报错退出', () => {
   seed();
   fs.rmSync(path.join(fakePkg, 'cordis.patch.yml'));
@@ -191,7 +222,7 @@ await test('uninstall.ps1 还原 bundles / dependencies，删掉 junction，但�
 
   const profile = readProfile();
   assert.deepEqual(profile.dsh.profile.bundles, ORIGINAL_PROFILE.dsh.profile.bundles);
-  assert.equal('dsh-memory' in profile.dependencies, false);
+  assert.equal(PKG_NAME in profile.dependencies, false);
   assert.equal(profile.dependencies['dsh-cost-meter'], '1.8.19', '原依赖被误删');
   assert.equal(fs.existsSync(profileLink), false, 'profile junction 没删掉');
   assert.ok(fs.existsSync(shimPath), '垫片被删了（应该保留）');
@@ -228,7 +259,7 @@ await test('uninstall.ps1 在没装过的 profile 上是无害的空操作', () 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.readFileSync(profileJson, 'utf8'), before, '空操作也改了 package.json');
   assert.equal(backups().length, 0, '空操作产生备份');
-  assert.match(result.stdout, /没有 dsh-memory/);
+  assert.match(result.stdout, /没有 @bangbang-03\/dsh-memory/);
 });
 
 /* ------------------------------------------------------------------ *
@@ -246,7 +277,7 @@ function buildTgz(version, dest) {
     path.join(src, 'package', 'package.json'),
     `${JSON.stringify({ name: '@bangbang-03/dsh-memory', version, type: 'module' })}\n`,
   );
-  fs.writeFileSync(path.join(src, 'package', 'cordis.patch.yml'), '- insert:\n    - id: dsh-memory\n      name: dsh-memory\n');
+  fs.writeFileSync(path.join(src, 'package', 'cordis.patch.yml'), `- insert:\n    - id: dsh-memory\n      name: '${PKG_NAME}'\n`);
   fs.writeFileSync(path.join(src, 'package', 'lib', 'index.js'), 'export function apply() {}\n');
   fs.writeFileSync(path.join(src, 'package', 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   /* GNU tar 会把 "C:\xxx" 当成远程主机，所以用相对文件名 + cwd。 */
@@ -305,6 +336,7 @@ const remoteHome = path.join(tmp, 'dshhome-remote');
 const remoteProfileDir = path.join(remoteHome, 'profiles', 'desktop');
 const remoteProfileJson = path.join(remoteProfileDir, 'package.json');
 const remotePluginsDir = path.join(remoteHome, 'plugins', 'dsh-memory');
+const remoteProfileLink = path.join(remoteProfileDir, 'node_modules', '@bangbang-03', 'dsh-memory');
 
 /**
  * 异步版 runScript：-FromNpm 的用例必须用它——spawnSync 会阻塞 node 事件循环，
@@ -356,10 +388,10 @@ await test('-FromNpm：从 registry 拉 latest 并装进 profile（解包 / 垫�
   assert.ok(fs.existsSync(path.join(remotePluginsDir, 'cordis.patch.yml')), '包内容应完整');
 
   const profile = JSON.parse(fs.readFileSync(remoteProfileJson, 'utf8'));
-  assert.ok(profile.dsh.profile.bundles.includes('dsh-memory'), 'bundles 应追加');
-  assert.match(profile.dependencies['dsh-memory'], /^link:/, '依赖应指向 plugins 解包目录');
+  assert.ok(profile.dsh.profile.bundles.includes(PKG_NAME), 'bundles 应追加');
+  assert.match(profile.dependencies[PKG_NAME], /^link:/, '依赖应指向 plugins 解包目录');
 
-  const link = linkTarget(path.join(remoteProfileDir, 'node_modules', 'dsh-memory'));
+  const link = linkTarget(remoteProfileLink);
   assert.equal(path.resolve(link), path.resolve(remotePluginsDir), 'junction 应指向 plugins 解包目录');
 
   const shim = path.resolve(linkTarget(path.join(remotePluginsDir, 'node_modules', '@deepseek-ai')));
@@ -373,7 +405,7 @@ await test('-FromNpm：registry 出新版后重跑同一条命令即完成更新
   const installed = JSON.parse(fs.readFileSync(path.join(remotePluginsDir, 'package.json'), 'utf8'));
   assert.equal(installed.version, '0.3.2', '应整体替换成 0.3.2');
   assert.equal(
-    path.resolve(linkTarget(path.join(remoteProfileDir, 'node_modules', 'dsh-memory'))),
+    path.resolve(linkTarget(remoteProfileLink)),
     path.resolve(remotePluginsDir),
     'junction 仍指向同一目录（DSH 侧无需任何动作）',
   );
@@ -416,7 +448,7 @@ await test('-FromUrl：直接下 tarball（Release 资产场景，不走 registr
   const installed = JSON.parse(fs.readFileSync(path.join(remotePluginsDir, 'package.json'), 'utf8'));
   assert.equal(installed.version, '0.3.2', '应装上 tarball 里的版本');
   assert.equal(
-    path.resolve(linkTarget(path.join(remoteProfileDir, 'node_modules', 'dsh-memory'))),
+    path.resolve(linkTarget(remoteProfileLink)),
     path.resolve(remotePluginsDir),
     'junction 指向解包目录',
   );

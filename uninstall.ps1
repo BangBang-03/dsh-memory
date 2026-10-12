@@ -4,8 +4,9 @@
   从某个 DSH profile 里卸掉 dsh-memory（install.ps1 的逆操作）。
 
 .DESCRIPTION
-  - 从 <profile>/package.json 的 dsh.profile.bundles 与 dependencies 里移除 dsh-memory（改前备份）。
-  - 删掉 <profile>/node_modules/dsh-memory 这层 junction。只删 junction，绝不跟进目标目录。
+  - 从 <profile>/package.json 的 dsh.profile.bundles 与 dependencies 里移除 @bangbang-03/dsh-memory
+    （0.3.2 之前老装法留下的别名 dsh-memory 也一并清掉；改前备份）。
+  - 删掉 <profile>/node_modules 下对应的 junction。只删 junction，绝不跟进目标目录。
   - 默认**不动**记忆数据（~/.dsh/storages/dsh-memory）。要连数据一起删得显式加 -PurgeStorage。
 
 .PARAMETER Profile
@@ -29,7 +30,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$PackageName = 'dsh-memory'
+
+# 真包名（0.3.2 起）；0.3.2 之前的老装法用的是别名 dsh-memory，两个都要清。
+$PackageName = '@bangbang-03/dsh-memory'
+$LegacyName = 'dsh-memory'
+# 记忆数据的目录名不跟包名走（lib/store.js 里写死 dsh-memory），别拿 $PackageName 去拼。
+$StorageName = 'dsh-memory'
 
 function Write-Step([string]$Text) { Write-Host "  $Text" }
 
@@ -64,8 +70,9 @@ if (Test-Path -LiteralPath $profileJson) {
   $json = (Get-Content -LiteralPath $profileJson -Raw) | ConvertFrom-Json
   $bundles = @($json.dsh.profile.bundles)
   $depNames = if ($json.dependencies) { @($json.dependencies.PSObject.Properties.Name) } else { @() }
-  $hasBundle = $bundles -contains $PackageName
-  $hasDep = $depNames -contains $PackageName
+  $names = @($PackageName, $LegacyName)
+  $hasBundle = @($bundles | Where-Object { $names -contains $_ }).Count -gt 0
+  $hasDep = @($depNames | Where-Object { $names -contains $_ }).Count -gt 0
 
   if ($hasBundle -or $hasDep) {
     if (-not $DryRun) {
@@ -76,12 +83,12 @@ if (Test-Path -LiteralPath $profileJson) {
       Write-Step '[dry] 会先备份 package.json'
     }
     if ($hasBundle) {
-      $json.dsh.profile.bundles = @($bundles | Where-Object { $_ -ne $PackageName })
-      Write-Step "bundles -= $PackageName"
+      $json.dsh.profile.bundles = @($bundles | Where-Object { $names -notcontains $_ })
+      Write-Step "bundles -= $($names -join ' / ')"
     }
     if ($hasDep) {
-      $json.dependencies.PSObject.Properties.Remove($PackageName)
-      Write-Step "dependencies -= $PackageName"
+      foreach ($n in $names) { if ($depNames -contains $n) { $json.dependencies.PSObject.Properties.Remove($n) } }
+      Write-Step "dependencies -= $($names -join ' / ')"
     }
     $text = $json | ConvertTo-Json -Depth 24
     if (-not $DryRun) {
@@ -91,17 +98,18 @@ if (Test-Path -LiteralPath $profileJson) {
     }
     Write-Step "写入 $profileJson"
   } else {
-    Write-Step "package.json 里没有 $PackageName，跳过"
+    Write-Step "package.json 里没有 $PackageName（也没有旧别名 $LegacyName），跳过"
   }
 } else {
   Write-Step "找不到 $profileJson，跳过清单清理"
 }
 
 Remove-JunctionSafe -Path (Join-Path $profileDir "node_modules\$PackageName")
+Remove-JunctionSafe -Path (Join-Path $profileDir "node_modules\$LegacyName")
 # 垫片留着无害（它只是指向共享的 @deepseek-ai），删它反而可能影响同一源码目录的其它装法。
-Write-Step "保留垫片 $(Join-Path $PackageName 'node_modules\@deepseek-ai')（无害）"
+Write-Step "保留垫片 node_modules\@deepseek-ai（无害）"
 
-$storage = Join-Path (Join-Path $DshHome 'storages') $PackageName
+$storage = Join-Path (Join-Path $DshHome 'storages') $StorageName
 if ($PurgeStorage) {
   if (Test-Path -LiteralPath $storage) {
     Write-Step "删记忆数据 $storage"
