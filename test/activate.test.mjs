@@ -169,6 +169,8 @@ async function waitFor(predicate, { timeout = 3000, step = 15 } = {}) {
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-activate-'));
+/* 版本号断言不写死——对着 package.json 比（bump 时不需要回来改测试）。 */
+const pkgVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const workspace = path.join(tmp, 'workspace');
 fs.mkdirSync(workspace, { recursive: true });
 
@@ -354,7 +356,7 @@ await test('webServer 路由：state 认工作区、save 落库、list 回读', 
   assert.equal(state.body.ok, true);
   assert.equal(state.body.workspace.root, workspace);
   assert.equal(state.body.settings.briefing, true);
-  assert.equal(state.body.version, '0.3.4');
+  assert.equal(state.body.version, pkgVersion);
 
   const saved = await callRoute(route, {
     method: 'POST',
@@ -869,6 +871,164 @@ await test('工具 save 带 supersedes：旧条归档，get 展示版本链', as
 
   const listed = await tool.execute({ action: 'list' }, exec);
   assert.equal(listed.count, 1, '旧条归档后 list 只剩新条');
+});
+
+/* ------------------------------------------------------------------ *
+ * 画像层（portrait）：注入、冻结、API
+ * ------------------------------------------------------------------ */
+
+await test('portrait 模式：简报里画像全量在前、索引清单在后', async () => {
+  const { calls, tool, exec, session, route } = activate({ briefMode: 'portrait' });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  /* 先没有画像也没有记录：简报为空但不炸。 */
+  assert.equal(calls.sections[0].text({ agent: { session } }), '');
+
+  const saved = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({
+      workspace,
+      scope: 'workspace',
+      sections: [
+        { key: 'background', text: '这是画像背景段落。' },
+        { key: 'focus', text: '这是画像关注段落。' },
+      ],
+    }),
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.portrait.version, 1);
+
+  await tool.execute(
+    { action: 'save', title: '画像模式下的普通条目', content: '正文。', category: 'fact' },
+    exec,
+  );
+
+  /* 画像对 session-1 已冻结（当时为空），换新会话看新文本。 */
+  const briefing = calls.sections[0].text({ agent: { session: { ...session, id: 'session-2' } } });
+  assert.match(briefing, /### 工作区画像（v1）/);
+  assert.match(briefing, /这是画像背景段落。/);
+  assert.match(briefing, /画像模式下的普通条目/, '索引清单也要在');
+});
+
+await test('portrait 冻结：同一会话内不追溯，新会话看到新版本', async () => {
+  const { calls, route, session } = activate({ briefMode: 'portrait' });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  /* 第一次渲染即冻结（此刻画像为空）。 */
+  const first = calls.sections[0].text({ agent: { session } });
+  assert.equal(first, '');
+
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '会话一之后写入。' }] }),
+  });
+
+  const again = calls.sections[0].text({ agent: { session } });
+  assert.doesNotMatch(again, /会话一之后写入。/, '同一会话不应追溯新画像');
+
+  const other = calls.sections[0].text({ agent: { session: { ...session, id: 'session-fresh' } } });
+  assert.match(other, /会话一之后写入。/, '新会话应看到新画像');
+});
+
+await test('portrait 冻结：重写不影响进行中的会话（缓存前缀稳定）', async () => {
+  const { calls, route, session } = activate({ briefMode: 'portrait' });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '第一版画像。' }] }),
+  });
+  const a = calls.sections[0].text({ agent: { session } });
+  assert.match(a, /第一版画像。/);
+
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '第二版画像。' }] }),
+  });
+  const b = calls.sections[0].text({ agent: { session } });
+  assert.equal(b, a, '同一会话的注入文本应逐字节稳定');
+});
+
+await test('portrait API：GET 读取、save 版本递增、history 降序、坏请求 400', async () => {
+  const { calls, route, session } = activate();
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  const empty = await callRoute(route, { url: '/memory/api/portrait' });
+  assert.equal(empty.status, 200);
+  assert.equal(empty.body.workspace, null);
+  assert.equal(empty.body.global, null);
+  assert.equal(empty.body.sectionDefs.length, 4);
+
+  const save1 = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'focus', text: '一。' }] }),
+  });
+  assert.equal(save1.body.portrait.version, 1);
+
+  const save2 = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'focus', text: '二。' }] }),
+  });
+  assert.equal(save2.body.portrait.version, 2);
+
+  const globalSave = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, scope: 'global', sections: [{ key: 'preference', text: '全局段。' }] }),
+  });
+  assert.equal(globalSave.body.portrait.scope, 'global');
+
+  const read = await callRoute(route, { url: '/memory/api/portrait' });
+  assert.equal(read.body.workspace.version, 2);
+  assert.equal(read.body.workspace.sections.find((s) => s.key === 'focus').text, '二。');
+  assert.equal(read.body.global.version, 1);
+  assert.equal(read.body.global.sections.find((s) => s.key === 'preference').text, '全局段。');
+
+  const history = await callRoute(route, { url: '/memory/api/portrait/history' });
+  assert.equal(history.body.history[0].version, 2);
+  assert.equal(history.body.history[0].current, true);
+  assert.equal(history.body.history[1].version, 1);
+
+  const bad = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace }),
+  });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, 'bad_sections');
+});
+
+await test('portrait 预览：/briefing-preview 给出画像计量并排除画像条目', async () => {
+  const { calls, route, session } = activate({ briefMode: 'portrait' });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '预览用背景。' }] }),
+  });
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/save',
+    body: JSON.stringify({ workspace, title: '画像条目样例', content: 'x', tags: ['portrait'], pinned: true }),
+  });
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/save',
+    body: JSON.stringify({ workspace, title: '普通条目样例', content: 'y' }),
+  });
+
+  const preview = await callRoute(route, { url: '/memory/api/briefing-preview' });
+  assert.equal(preview.body.preview.mode, 'portrait');
+  assert.ok(preview.body.preview.portrait.chars > 0, '画像计量应为正');
+  assert.ok(!preview.body.preview.titles.includes('画像条目样例'), '画像条目不应进清单');
+  assert.ok(preview.body.preview.titles.includes('普通条目样例'), '普通条目应在清单');
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

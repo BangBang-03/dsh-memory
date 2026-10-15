@@ -831,6 +831,103 @@ test('briefing 预览口径：index 模式下 store.briefing 给出被选中的�
   assert.equal(picked[0].title, '置顶必进', '置顶应排最前');
 });
 
+/* ---------------- 画像层（portrait） ---------------- */
+
+test('portrait: 保存与读取——版本 +1、正本同步、persistent=true', () => {
+  const s = iso('portrait-basic');
+  const ws = makeWorkspace('v04-portrait-basic');
+  assert.equal(s.portrait(ws), null, '空库没有画像');
+
+  const res = s.savePortrait(ws, {
+    sections: [
+      { key: 'background', text: '背景。' },
+      { key: 'focus', text: '关注。' },
+    ],
+  });
+  assert.equal(res.portrait.version, 1);
+  assert.equal(res.mdWritten, true);
+
+  const back = s.portrait(ws);
+  assert.equal(back.version, 1);
+  assert.equal(back.persistent, true);
+  assert.equal(back.sections.find((x) => x.key === 'background').text, '背景。');
+  assert.equal(back.sections.find((x) => x.key === 'recent').text, '');
+});
+
+test('portrait: PORTRAIT.md 正本生成，含标题与段头', () => {
+  const s = iso('portrait-md');
+  const ws = makeWorkspace('v04-portrait-md');
+  s.savePortrait(ws, { sections: [{ key: 'background', text: '正本正文。' }] });
+  const info = s.portraitInfo(ws);
+  const md = fs.readFileSync(info.mdFile, 'utf8');
+  assert.match(md, /# 工作区画像/);
+  assert.match(md, /\*\*工作背景\*\*/);
+  assert.match(md, /正本正文。/);
+});
+
+test('portrait: 只有 PORTRAIT.md（无 json）时回落读取，且不落盘', () => {
+  const s = iso('portrait-import');
+  const ws = makeWorkspace('v04-portrait-import');
+  const info = s.portraitInfo(ws);
+  fs.mkdirSync(path.dirname(info.mdFile), { recursive: true });
+  fs.writeFileSync(
+    info.mdFile,
+    ['# 工作区画像 — x', '', '**工作背景**', '', '从正本读。'].join('\n'),
+    'utf8',
+  );
+  const p = s.portrait(ws);
+  assert.equal(p.persistent, false);
+  assert.equal(p.version, 0);
+  assert.equal(p.sections.find((x) => x.key === 'background').text, '从正本读。');
+  assert.ok(!fs.existsSync(info.file), '回落读取不应自动写 portrait.json');
+});
+
+test('portrait: 版本递增、旧版快照留档、历史列表降序', () => {
+  const s = iso('portrait-history');
+  const ws = makeWorkspace('v04-portrait-history');
+  s.savePortrait(ws, { sections: [{ key: 'background', text: 'v1' }] });
+  s.savePortrait(ws, { sections: [{ key: 'background', text: 'v2' }] });
+  const hist = s.portraitHistory(ws);
+  assert.equal(hist[0].version, 2);
+  assert.equal(hist[0].current, true);
+  assert.equal(hist[1].version, 1);
+  assert.equal(hist[1].current, false);
+  const info = s.portraitInfo(ws);
+  assert.ok(fs.existsSync(path.join(info.historyDir, 'v1.json')), 'v1 快照应留档');
+});
+
+test('portrait: 快照保留最近 10 版', () => {
+  const s = iso('portrait-prune');
+  const ws = makeWorkspace('v04-portrait-prune');
+  for (let i = 0; i < 12; i += 1) {
+    s.savePortrait(ws, { sections: [{ key: 'focus', text: `v${i}` }] });
+  }
+  const info = s.portraitInfo(ws);
+  const files = fs.readdirSync(info.historyDir).filter((n) => /^v\d+\.json$/.test(n));
+  assert.equal(files.length, 10);
+  assert.ok(!files.includes('v1.json'), '最老的快照应被清掉');
+});
+
+test('portrait: 全局画像（root=""）独立读写，与工作区互不影响', () => {
+  const s = iso('portrait-global');
+  const ws = makeWorkspace('v04-portrait-global');
+  const res = s.savePortrait('', { sections: [{ key: 'preference', text: '全局偏好。' }] });
+  assert.equal(res.portrait.scope, 'global');
+  const g = s.portrait('');
+  assert.equal(g.scope, 'global');
+  assert.equal(g.sections.find((x) => x.key === 'preference').text, '全局偏好。');
+  assert.equal(s.portrait(ws), null, '全局与工作区互不影响');
+});
+
+test('portrait: portraitInfo 报告路径且不读内容', () => {
+  const s = iso('portrait-info');
+  const ws = makeWorkspace('v04-portrait-info');
+  const info = s.portraitInfo(ws);
+  assert.ok(info.file.endsWith('portrait.json'));
+  assert.ok(info.mdFile.endsWith('PORTRAIT.md'));
+  assert.ok(info.historyDir.endsWith('portrait.history'));
+});
+
 /* ---------------- 结果 ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

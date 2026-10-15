@@ -1150,6 +1150,79 @@ await test('维护页待审队列：草稿批准后生效、拒绝后消失，�
 });
 
 /* ------------------------------------------------------------------ *
+ * 画像卡（portrait）
+ * ------------------------------------------------------------------ */
+
+await test('画像卡：渲染、展开显示两份画像、编辑保存走 /portrait/save', async () => {
+  /* 准备：给当前工作区与全局各写一份画像。 */
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/save`,
+    body: {
+      workspace: WS,
+      sections: [
+        { key: 'background', text: '客户端测试背景。' },
+        { key: 'focus', text: '客户端测试关注。' },
+      ],
+    },
+  });
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/save`,
+    body: { workspace: WS, scope: 'global', sections: [{ key: 'preference', text: '全局偏好文本。' }] },
+  });
+
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('portraitTitle'))), '缺少画像卡标题');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait`),
+    '/portrait 应随页面加载',
+  );
+
+  /* 默认收起：展开后看到两份画像的段落与版本。 */
+  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
+  assert.ok(open, '缺少「展开画像」按钮');
+  mini.click(open);
+  await settle(6);
+
+  const opened = text();
+  assert.match(opened, /客户端测试背景。/, '展开后应显示工作区画像段落');
+  assert.match(opened, /全局偏好文本。/, '展开后应显示全局画像段落');
+  assert.match(opened, /v1/, '应显示版本号');
+
+  /* 编辑工作区画像（第一个「编辑」按钮 = 画像卡内的工作区画像）。 */
+  const edit = mini.findByText(view, makeT('zh')('editDoc'), 'button');
+  assert.ok(edit, '缺少编辑按钮');
+  mini.click(edit);
+  await settle(6);
+
+  const area = mini
+    .findAllByTag(view, 'textarea')
+    .find((node) => String(node.props.value || '').includes('**工作背景**'));
+  assert.ok(area, '点编辑应打开画像编辑框（含段标题）');
+  area.props.onChange({ target: { value: '**工作背景**\n改过的背景。\n\n**当前关注**\n改过的关注。' } });
+  await settle(4);
+
+  const save = mini.findByText(view, makeT('zh')('save'), 'button');
+  assert.ok(save, '缺少保存按钮');
+  mini.click(save);
+  await settle(12);
+
+  const after = store.portrait(WS);
+  assert.equal(after.version, 2, '保存后版本递增');
+  assert.equal(after.sections.find((s) => s.key === 'background').text, '改过的背景。');
+  assert.equal(after.sections.find((s) => s.key === 'focus').text, '改过的关注。');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait/save` && call.method === 'POST'),
+    '/portrait/save 应被调用',
+  );
+  assert.match(text(), /画像已保存/, '保存后应出现提示');
+});
+
+/* ------------------------------------------------------------------ *
  * 结果
  * ------------------------------------------------------------------ */
 

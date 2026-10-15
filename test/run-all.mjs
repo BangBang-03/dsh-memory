@@ -12,6 +12,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 const suites = [
   ['store', '存储层：工作区分库、去重合并、检索、镜像、导入导出'],
+  ['portrait', '画像层：段落模型、Markdown 渲染与解析、预算截断与注入'],
   ['markdown', '既有记忆解析：WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、本机扫描'],
   ['distill', '提炼层：对话摘录、模型输出解析、触发条件'],
   ['api', 'HTTP 契约：15 个端点（含既有记忆扫描导入）、错误码、参数校验'],
