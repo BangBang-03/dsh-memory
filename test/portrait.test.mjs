@@ -8,12 +8,15 @@ import assert from 'node:assert/strict';
 const {
   PORTRAIT_SECTIONS,
   PORTRAIT_HISTORY_LIMIT,
+  REWRITE_SYSTEM,
   sectionsFor,
   normalizeSections,
   parsePortraitMarkdown,
   renderPortraitMarkdown,
   clampPortraitToBudget,
   renderPortraitInjection,
+  buildRewriteInput,
+  parseRewriteResponse,
 } = await import('../lib/portrait.js');
 
 let passed = 0;
@@ -254,6 +257,62 @@ test('injection: 空段不出现在文本里', () => {
     global: null,
   });
   assert.ok(!res.text.includes('**近期动态**'));
+});
+
+/* ---------------- 重写管线（buildRewriteInput / parseRewriteResponse） ---------------- */
+
+test('rewrite: REWRITE_SYSTEM 存在且要求 JSON 输出', () => {
+  assert.match(REWRITE_SYSTEM, /JSON/);
+  assert.match(REWRITE_SYSTEM, /Never invent facts/);
+});
+
+test('rewrite: buildRewriteInput 含四段 key 与旧画像', () => {
+  const input = buildRewriteInput({
+    scope: 'workspace',
+    oldPortrait: { sections: [{ key: 'background', text: '旧背景。' }] },
+  });
+  assert.match(input, /keys: background, preference, focus, recent/);
+  assert.match(input, /旧背景。/);
+  assert.match(input, /ONLY a JSON object/);
+});
+
+test('rewrite: buildRewriteInput 带日志与条目摘要', () => {
+  const input = buildRewriteInput({
+    scope: 'workspace',
+    journal: [{ date: '2026-10-15', text: '# 2026-10-15\n- 10:00 做了 X' }],
+    records: [{ title: '条目甲', category: 'fact', updatedAt: '2026-10-15T02:00:00Z' }],
+  });
+  assert.match(input, /Journal \(newest first\)/);
+  assert.match(input, /做了 X/);
+  assert.match(input, /条目甲 \[fact\] 2026-10-15/);
+});
+
+test('rewrite: 没有旧画像时明说 (empty)', () => {
+  assert.match(buildRewriteInput({ oldPortrait: null }), /Current profile:\n\(empty\)/);
+});
+
+test('rewrite: parse 接受围栏 / 裸 JSON / 前后噪声', () => {
+  const good = '{"sections":[{"key":"background","text":"A。"}]}';
+  for (const text of [good, `\`\`\`json\n${good}\n\`\`\``, `当然可以：\n${good}\n以上。`]) {
+    const parsed = parseRewriteResponse(text, { scope: 'workspace' });
+    assert.equal(parsed.ok, true, text.slice(0, 24));
+    assert.equal(parsed.sections.find((s) => s.key === 'background').text, 'A。');
+  }
+});
+
+test('rewrite: parse 的失败分支', () => {
+  assert.deepEqual(parseRewriteResponse(''), { ok: false, error: 'empty' });
+  assert.deepEqual(parseRewriteResponse('抱歉，无法完成'), { ok: false, error: 'no_json' });
+  assert.deepEqual(parseRewriteResponse('{"foo":1}'), { ok: false, error: 'no_sections' });
+  const empty = parseRewriteResponse('{"sections":[{"key":"background","text":""}]}');
+  assert.equal(empty.ok, false);
+  assert.equal(empty.error, 'empty_sections');
+});
+
+test('rewrite: parse 按 scope 归一（全局版段标题为「个人背景」）', () => {
+  const parsed = parseRewriteResponse('{"sections":[{"key":"preference","text":"P"}]}', { scope: 'global' });
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.sections.find((s) => s.key === 'preference').title, '个人背景');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

@@ -80,6 +80,21 @@ const api = createApi({
   distillNow: async ({ text }) => ({
     candidates: [{ title: text.slice(0, 20), content: text, category: 'note', tags: [], confidence: 0.9 }],
   }),
+  rewriteNow: async ({ workspace, scope }) => {
+    const saved = store.savePortrait(scope === 'global' ? '' : workspace, {
+      sections: [{ key: 'background', text: '假重写背景。' }],
+      source: 'auto',
+    });
+    return { ok: true, drafted: false, portrait: saved.portrait };
+  },
+  approveDraft: ({ workspace, scope }) => {
+    const root = scope === 'global' ? '' : workspace;
+    const draft = store.portraitDraftRead(root);
+    if (!draft) return { ok: false, error: 'no_draft' };
+    const saved = store.savePortrait(root, { sections: draft.sections, source: 'auto' });
+    store.portraitDraftClear(root);
+    return { ok: true, portrait: saved.portrait };
+  },
 });
 
 /** 把浏览器的 fetch 直通到 api.handle。 */
@@ -1248,6 +1263,83 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
     '/portrait/save 应被调用',
   );
   assert.match(text(), /画像已保存/, '保存后应出现提示');
+});
+
+await test('画像卡：重写按钮触发 /portrait/rewrite，完成后出提示', async () => {
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  const rewrite = mini.findByText(view, makeT('zh')('portraitRewrite'), 'button');
+  assert.ok(rewrite, '缺少重写按钮');
+  mini.click(rewrite);
+  await settle(14);
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait/rewrite` && call.method === 'POST'),
+    '/portrait/rewrite 应被调用',
+  );
+  assert.match(text(), /画像已重写/, '应有完成提示');
+  assert.equal(
+    store.portrait(WS).sections.find((s) => s.key === 'background').text,
+    '假重写背景。',
+  );
+});
+
+await test('画像卡：待审重写稿——预览与批准', async () => {
+  store.portraitDraftWrite(WS, {
+    sections: [{ key: 'background', text: '待审背景。' }],
+    basedOn: { version: store.portrait(WS)?.version || 0 },
+  });
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
+  mini.click(open);
+  await settle(6);
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('portraitDraftHint'))), '应有待审提示');
+
+  const preview = mini.findByText(view, makeT('zh')('portraitDraftView'), 'button');
+  assert.ok(preview, '缺少预览按钮');
+  mini.click(preview);
+  await settle(8);
+  assert.match(text(), /待审背景。/, '预览应显示重写稿内容');
+
+  const approve = mini.findByText(view, makeT('zh')('portraitDraftApprove'), 'button');
+  assert.ok(approve, '缺少批准按钮');
+  mini.click(approve);
+  await settle(12);
+  assert.equal(store.portraitDraftRead(WS), null, '批准后待审清空');
+  assert.equal(
+    store.portrait(WS).sections.find((s) => s.key === 'background').text,
+    '待审背景。',
+  );
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait/draft/approve`),
+    'approve 端点应被调用',
+  );
+});
+
+await test('工作日志条：展开拉取并显示当天日志', async () => {
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/journal`,
+    body: { workspace: WS, text: '客户端日志条目。' },
+  });
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  /* 「展开」按钮有多个（变化横幅 / 注入预览 / 日志条），日志条在最末尾。 */
+  const opens = mini.findAll(
+    view,
+    (node) => node.type === 'button' && mini.textOf(node).trim() === makeT('zh')('recentOpen'),
+  );
+  assert.ok(opens.length >= 1, '应有展开按钮');
+  mini.click(opens[opens.length - 1]);
+  await settle(10);
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/journal`),
+    '/journal 应被拉取',
+  );
+  assert.match(text(), /客户端日志条目。/);
 });
 
 /* ------------------------------------------------------------------ *

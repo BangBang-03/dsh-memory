@@ -221,7 +221,7 @@ await test('apply() 不抛错，工具 / 提示段 / 路由 / 事件都注册到
   // defineTool 在定义时就把简化 DSL 编译成 JSON Schema。
   assert.equal(tool.parameters.type, 'object');
   assert.equal(tool.parameters.properties.action.type, 'string');
-  assert.deepEqual(tool.parameters.properties.action.enum, ['save', 'search', 'list', 'get', 'update', 'forget', 'stats']);
+  assert.deepEqual(tool.parameters.properties.action.enum, ['save', 'search', 'list', 'get', 'update', 'forget', 'stats', 'journal']);
   assert.ok(tool.parameters.required.includes('action'));
 
   assert.equal(calls.sections.length, 1);
@@ -1029,6 +1029,136 @@ await test('portrait 预览：/briefing-preview 给出画像计量并排除画�
   assert.ok(preview.body.preview.portrait.chars > 0, '画像计量应为正');
   assert.ok(!preview.body.preview.titles.includes('画像条目样例'), '画像条目不应进清单');
   assert.ok(preview.body.preview.titles.includes('普通条目样例'), '普通条目应在清单');
+});
+
+/* ------------------------------------------------------------------ *
+ * M1：日志层 / 记忆纪律 / 画像重写管线
+ * ------------------------------------------------------------------ */
+
+const REWRITE_REPLY = JSON.stringify({
+  sections: [
+    { key: 'background', text: '重写后的背景。' },
+    { key: 'focus', text: '重写后的关注。' },
+  ],
+});
+
+await test('工具 journal：写一条、再读回来；空文本拒绝', async () => {
+  const { tool, exec } = activate();
+  const w = await tool.execute({ action: 'journal', text: '完成了 M1 日志层。' }, exec);
+  assert.match(w.text, /已写入工作日志/);
+  assert.equal(w.count, 1);
+  const r = await tool.execute({ action: 'journal' }, exec);
+  assert.match(r.text, /完成了 M1 日志层。/);
+  const empty = await tool.execute({ action: 'journal', text: '   ' }, exec);
+  assert.match(empty.text, /内容为空/);
+});
+
+await test('记忆纪律：默认注入；discipline=false 时不出现', async () => {
+  const a1 = activate();
+  a1.calls.events.find(([name]) => name === 'session/created')[1](a1.session);
+  await a1.tool.execute({ action: 'save', title: '任意', content: 'x', category: 'fact' }, a1.exec);
+  const withDiscipline = a1.calls.sections[0].text({ agent: { session: a1.session } });
+  assert.match(withDiscipline, /记忆纪律/);
+  assert.match(withDiscipline, /action=journal/);
+  assert.match(withDiscipline, /记住/);
+
+  const a2 = activate({ discipline: false });
+  a2.calls.events.find(([name]) => name === 'session/created')[1](a2.session);
+  await a2.tool.execute({ action: 'save', title: '任意', content: 'x', category: 'fact' }, a2.exec);
+  const without = a2.calls.sections[0].text({ agent: { session: a2.session } });
+  assert.doesNotMatch(without, /记忆纪律/);
+});
+
+await test('画像重写 direct：落库版本 +1，提示词里带日志原料', async () => {
+  const seen = [];
+  const { calls, route, session, tool, exec } = activate({ services: { llm: fakeLlm(REWRITE_REPLY, seen) } });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await tool.execute({ action: 'journal', text: '重写原料日志。' }, exec);
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '旧背景。' }] }),
+  });
+
+  const res = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/rewrite',
+    body: JSON.stringify({ workspace, scope: 'workspace' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.drafted, false);
+  assert.equal(res.body.portrait.version, 2);
+  assert.equal(res.body.portrait.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+
+  const prompt = seen.at(-1)?.messages?.[0]?.content?.[0]?.text || '';
+  assert.match(prompt, /重写原料日志。/, '提示词应包含日志原料');
+});
+
+await test('画像重写 draft：进待审 → 批准后生效 → 重复批准 404', async () => {
+  const { calls, route, session } = activate({ services: { llm: fakeLlm(REWRITE_REPLY) } });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '旧背景。' }] }),
+  });
+
+  const res = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/rewrite',
+    body: JSON.stringify({ workspace, mode: 'draft' }),
+  });
+  assert.equal(res.body.drafted, true);
+  assert.equal(res.body.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+
+  const state = await callRoute(route, { url: '/memory/api/portrait' });
+  assert.equal(state.body.draft, true);
+  assert.equal(state.body.workspace.version, 1, '批准前画像不变');
+
+  const draft = await callRoute(route, { url: '/memory/api/portrait/draft' });
+  assert.equal(draft.body.draft.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+
+  const approve = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/draft/approve',
+    body: JSON.stringify({ workspace }),
+  });
+  assert.equal(approve.status, 200);
+  assert.equal(approve.body.portrait.version, 2);
+
+  const after = await callRoute(route, { url: '/memory/api/portrait' });
+  assert.equal(after.body.draft, false);
+  assert.equal(after.body.workspace.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+
+  const again = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/draft/approve',
+    body: JSON.stringify({ workspace }),
+  });
+  assert.equal(again.status, 404, '没有待审稿时应 404');
+});
+
+await test('journal API：写与读、空文本 400、指定日期校验', async () => {
+  const { calls, route, session } = activate();
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  const w = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/journal',
+    body: JSON.stringify({ workspace, text: 'API 写的日志。' }),
+  });
+  assert.equal(w.status, 200);
+  const r = await callRoute(route, { url: '/memory/api/journal' });
+  assert.ok(Array.isArray(r.body.dates));
+  assert.match(r.body.recent[0].text, /API 写的日志。/);
+  const bad = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/journal',
+    body: JSON.stringify({ workspace, text: '' }),
+  });
+  assert.equal(bad.status, 400);
+  const badDate = await callRoute(route, { url: '/memory/api/journal?date=20x5-13-99' });
+  assert.equal(badDate.status, 400);
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

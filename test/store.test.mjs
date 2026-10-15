@@ -928,6 +928,65 @@ test('portrait: portraitInfo 报告路径且不读内容', () => {
   assert.ok(info.historyDir.endsWith('portrait.history'));
 });
 
+/* ---------------- 日志层（journal）与重写稿（draft） ---------------- */
+
+test('journal: 追加创建按天文件（标题 + 时间前缀）', () => {
+  const s = iso('journal-basic');
+  const ws = makeWorkspace('v05-journal-basic');
+  const r1 = s.journalAppend(ws, { text: '第一条。', at: new Date('2026-10-15T10:05:00') });
+  assert.equal(r1.ok, true);
+  assert.equal(r1.date, '2026-10-15');
+  assert.equal(r1.time, '10:05');
+  const day = s.journalRead(ws, { date: '2026-10-15' });
+  assert.match(day.text, /^# 2026-10-15\n/);
+  assert.match(day.text, /- 10:05 第一条。/);
+});
+
+test('journal: 多行正文缩进、连续追加不覆盖、跨天分文件', () => {
+  const s = iso('journal-multi');
+  const ws = makeWorkspace('v05-journal-multi');
+  s.journalAppend(ws, { text: '首行。\n第二行。', at: new Date('2026-10-14T09:00:00') });
+  s.journalAppend(ws, { text: '次日。', at: new Date('2026-10-15T08:30:00') });
+  const day1 = s.journalRead(ws, { date: '2026-10-14' }).text;
+  assert.match(day1, /- 09:00 首行。\n {2}第二行。/);
+  assert.ok(!day1.includes('次日。'), '不同天分文件');
+  assert.deepEqual(s.journalDates(ws), ['2026-10-15', '2026-10-14']);
+});
+
+test('journal: 空文本拒绝；recent 限量并降序', () => {
+  const s = iso('journal-recent');
+  const ws = makeWorkspace('v05-journal-recent');
+  assert.equal(s.journalAppend(ws, { text: '   ' }).ok, false);
+  for (const day of ['2026-10-10', '2026-10-12', '2026-10-13']) {
+    s.journalAppend(ws, { text: `d-${day}`, at: new Date(`${day}T12:00:00`) });
+  }
+  const recent = s.journalRecent(ws, { days: 2 });
+  assert.equal(recent.length, 2);
+  assert.equal(recent[0].date, '2026-10-13');
+  assert.equal(recent[1].date, '2026-10-12');
+  assert.match(recent[0].text, /d-2026-10-13/);
+});
+
+test('journal: 没写过的日期读出空串', () => {
+  const s = iso('journal-missing');
+  const ws = makeWorkspace('v05-journal-missing');
+  assert.equal(s.journalRead(ws, { date: '2020-01-01' }).text, '');
+  assert.deepEqual(s.journalDates(ws), []);
+});
+
+test('draft: 写 / 读 / 清（批准前对模型不可见）', () => {
+  const s = iso('draft');
+  const ws = makeWorkspace('v05-draft');
+  assert.equal(s.portraitDraftRead(ws), null);
+  s.portraitDraftWrite(ws, { sections: [{ key: 'background', text: '待审稿。' }], basedOn: { version: 2 } });
+  const draft = s.portraitDraftRead(ws);
+  assert.equal(draft.sections.find((x) => x.key === 'background').text, '待审稿。');
+  assert.equal(draft.basedOn.version, 2);
+  assert.equal(s.portrait(ws), null, 'draft 不影响正式画像');
+  s.portraitDraftClear(ws);
+  assert.equal(s.portraitDraftRead(ws), null);
+});
+
 /* ---------------- 结果 ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
