@@ -1049,7 +1049,7 @@ await test('时间线排布：档案视图下拉切到时间线，含归档记�
   const saved = await api.handle({
     method: 'POST',
     pathname: `${API_PREFIX}/save`,
-    body: { workspace: WS, title: '时间线专用记忆', content: '时间线正文。' },
+    body: { workspace: WS, title: '时间线专用记忆', content: '时间线正文第一行。\n第二行细节。' },
   });
   await api.handle({
     method: 'POST',
@@ -1072,15 +1072,29 @@ await test('时间线排布：档案视图下拉切到时间线，含归档记�
   await settle(10);
 
   assert.match(text(), /时间线专用记忆/, '归档条目也应出现在时间线里');
-  const item = mini
-    .findAll(view, byClass('dshmem_tlItem'))
-    .find((node) => mini.textOf(node).includes('时间线专用记忆'));
-  assert.ok(item, '找不到时间线条目');
-  mini.click(item);
+  const findItem = () =>
+    mini
+      .findAll(view, byClass('dshmem_tlItem'))
+      .find((node) => mini.textOf(node).includes('时间线专用记忆'));
+  assert.ok(findItem(), '找不到时间线条目');
+
+  /* 折叠语言与档案条目一致：点 chevron/标题 = 展开全文（内容不默认铺开）。 */
+  assert.ok(mini.textOf(findItem()).includes('时间线正文第一行。'), '收起态应显示一句话钩子');
+  assert.ok(!mini.textOf(findItem()).includes('第二行细节。'), '时间线正文默认应收起（只显示钩子）');
+  const chev = mini.findAll(findItem(), byClass('dshmem_chev'))[0];
+  assert.ok(chev, '时间线条目应有展开箭头');
+  mini.click(chev);
+  await settle(6);
+  assert.ok(mini.textOf(findItem()).includes('第二行细节。'), '点开应展开全文');
+
+  /* 编辑走 hover 小按钮（不再点整卡打开编辑器）。 */
+  const editLink = mini.findAll(findItem(), byClass('dshmem_docFree'))[0];
+  assert.ok(editLink, '时间线条目应有编辑入口');
+  mini.click(editLink);
   await settle(6);
   assert.ok(
     mini.findAllByTag(view, 'textarea').some((node) => node.props.placeholder === makeT('zh')('fContentPh')),
-    '点时间线条目应打开编辑器',
+    '点编辑入口应打开编辑器',
   );
 });
 
@@ -1182,16 +1196,30 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
     '/portrait 应随页面加载',
   );
 
-  /* 默认收起：展开后看到两份画像的段落与版本。 */
+  /* 一层：展开画像卡 → 看到两份画像的子折叠行（正文不铺开）。 */
   const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
   assert.ok(open, '缺少「展开画像」按钮');
   mini.click(open);
   await settle(6);
 
   const opened = text();
-  assert.match(opened, /客户端测试背景。/, '展开后应显示工作区画像段落');
-  assert.match(opened, /全局偏好文本。/, '展开后应显示全局画像段落');
+  assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceLabel'))), '展开后应有工作区画像子行');
+  assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '展开后应有全局画像子行');
   assert.match(opened, /v1/, '应显示版本号');
+  assert.ok(!opened.includes('客户端测试背景。'), '子折叠默认收起，正文不应铺开');
+
+  /* 二层：点开工作区子行看正文，再点开全局子行。 */
+  const wsTitle = mini.findByText(view, `${makeT('zh')('portraitWorkspaceLabel')} v1`, 'span');
+  assert.ok(wsTitle, '找不到工作区画像子行标题');
+  mini.click(wsTitle);
+  await settle(6);
+  assert.ok(text().includes('客户端测试背景。'), '展开子行后应显示工作区画像正文');
+
+  const glTitle = mini.findByText(view, `${makeT('zh')('portraitGlobalLabel')} v1`, 'span');
+  assert.ok(glTitle, '找不到全局画像子行标题');
+  mini.click(glTitle);
+  await settle(6);
+  assert.ok(text().includes('全局偏好文本。'), '展开子行后应显示全局画像正文');
 
   /* 编辑工作区画像（第一个「编辑」按钮 = 画像卡内的工作区画像）。 */
   const edit = mini.findByText(view, makeT('zh')('editDoc'), 'button');
