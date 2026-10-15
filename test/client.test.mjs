@@ -340,6 +340,16 @@ await test('CSS 只注入一次，且带 data-plugin-css 标记', () => {
   assert.match(styleTags[0].textContent, /--dsw-static-deepseek-450/);
 });
 
+await test('次级文字对比度：dim 级文本由 currentColor 派生（随主题/背景自适应）', () => {
+  const css = styleTags[0].textContent;
+  assert.match(
+    css,
+    /--dshmem-dim:color-mix\(in srgb,currentColor 68%,transparent\)/,
+    '缺少 --dshmem-dim 派生色定义（亮色下宿主 dimmed=#e1e5ee 对比度仅 1.26:1）',
+  );
+  assert.ok(!css.includes('dsw-alias-label-dimmed'), '不应再直接使用宿主 dimmed 令牌');
+});
+
 await test('apply 注册 locale 字典（含 en）并挂到 settings.section', () => {
   loaded.exports.apply(ctx);
   assert.equal(localeRegistration.ns, 'settings.memory');
