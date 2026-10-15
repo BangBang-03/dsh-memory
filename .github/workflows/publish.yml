@@ -31,6 +31,7 @@ jobs:
       - name: 纯逻辑层测试
         run: |
           node test/store.test.mjs
+          node test/portrait.test.mjs
           node test/markdown.test.mjs
           node test/distill.test.mjs
           node test/api.test.mjs
