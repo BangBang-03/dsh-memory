@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-311%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-370%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -351,11 +351,14 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-8 个套件、311 项：
+9 个套件、370 项：
 
-- `store` 92 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
+- `store` 104 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
-  草稿四不可见、重复簇聚类与合并、体检（重复/过期/断链/草稿）、索引简报预算、镜像版本链线索、keywords 加权、unlink。
+  草稿四不可见、重复簇聚类与合并、体检（重复/过期/断链/草稿）、索引简报预算、镜像版本链线索、keywords 加权、unlink；
+  v0.5.0：日志层 journal（按天 `journal/YYYY-MM-DD.md`、只追加，是画像重写的上游原料）、画像的读写与草稿。
+- `portrait` 31 项 —— 画像层：段落模型与预算截断、Markdown 渲染与解析、重写输入的拼装、
+  模型输出的容错解析、工作区 / 全局两份注入渲染。
 - `markdown` 39 项 —— WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、格式识别、粗体子标题
   再切一层、Qoder 索引页剔除、本机扫描只读。
 - `distill` 41 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别；v0.3.0：
@@ -364,17 +367,19 @@ npm test          # 或 node test/run-all.mjs
   /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
   /save 带 supersedes 与 /supersede/rollback。
 - `host` 10 项 —— 导出形状、Config 默认值与越界校验。
-- `activate` 24 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
+- `activate` 34 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
   工具 save/search/get/forget、全文简报装不下时明说「只列了 N / M 条」、`/memory/api/*` 路由真的应答
   且守好 403/404、手动提炼端到端、面板保存落到工作区镜像、既有记忆扫描导入、数据目录不可用不炸外壳；
   v0.3.0：索引简报（带 id 不展开正文 + full 模式对照）、轮末召回（召回块出现、连续两轮不重复）、
   captureMode=draft 全流程（进队列 → 不进列表 → 日志 drafted → 批准生效）、
-  工具 save 带 supersedes（旧条归档、get 展示版本链）。
-- `client` 33 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
+  工具 save 带 supersedes（旧条归档、get 展示版本链）；v0.5.0：`action=journal` 写入回读与空文本拒绝、
+  journal API（写 / 读 / 日期校验）、画像重写（draft 进待审、direct 直接落库）、提示段里的写入纪律。
+- `client` 38 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
   接到真实 `store` + `api` 上驱动交互（列表 / 搜索 / 新建 / 删除 / 置顶 / 中英文切换 / 后端报错）；
   档案视图的分区与两种排布（整篇文档 / 按标签分组 / 按类型分组、分区与分组折叠、组头「整合」、
   整篇编辑、整理永远按标签算、开关即时落库；v0.3.1：档案与记忆空间合并成同一个视图）；v0.3.3：变化横幅与注入预览（/briefing-preview 被调用、✓ 简报标记、横幅展开）、时间线并入档案排布
-  （下拉切换、含归档）、维护 tab 合并（体检 KPI + 待审队列批准/拒绝/徽标）。
+  （下拉切换、含归档）、维护 tab 合并（体检 KPI + 待审队列批准/拒绝/徽标）；v0.5.0：画像卡（展开两份画像、
+  编辑保存走 `/portrait/save`、重写走草稿或直写）。
 - `install` 16 项 —— 在临时目录里搭假 DSH 主目录，真跑 `install.ps1` / `uninstall.ps1`：
   备份内容与原始一致、幂等、`-DryRun` 不落盘、卸载还原、`-PurgeStorage` 才删数据、
   0.3.2 之前的老别名安装会被自动迁移（清 bundles / dependencies 条目 + 摘旧 junction）、
