@@ -1,0 +1,54 @@
+name: Publish to npmjs
+
+# 发 @bangbang-03/dsh-memory 到 npmjs.com。
+#
+# 为什么单独一条：publish.yml 发的是 GitHub Packages（Actions 的 GITHUB_TOKEN
+# 天然带 packages:write），而 npmjs 需要一个一次性配置的仓库密钥——
+#   Settings → Secrets and variables → Actions → New repository secret
+#   Name: NPM_TOKEN    Secret: npmjs.com 的 Access Token（Automation 类型，需 Read and write）
+# 或命令行：gh secret set NPM_TOKEN --repo BangBang-03/dsh-memory
+#
+# 触发方式是手动 dispatch，不跟着 v* 标签：标签上已经有一条 GitHub Packages 的发布，
+# 两条同时发会互相打架（同一个版本、两个 registry，先到的那个成功）。
+# npmjs 这边按需点一次即可。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+
+      # 纯逻辑层（不依赖 DSH 运行时包），runner 上能真跑
+      - name: 纯逻辑层测试
+        run: |
+          node test/store.test.mjs
+          node test/portrait.test.mjs
+          node test/markdown.test.mjs
+          node test/distill.test.mjs
+          node test/api.test.mjs
+
+      - name: 版本还没发过
+        run: |
+          name=$(node -p "require('./package.json').name")
+          ver=$(node -p "require('./package.json').version")
+          if npm view "$name@$ver" version >/dev/null 2>&1; then
+            echo "::error::$name@$ver 已经在 npmjs 上，先改版本号再发"
+            exit 1
+          fi
+          echo "$name@$ver 尚未发布，继续"
+
+      - name: Publish
+        run: npm publish --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
