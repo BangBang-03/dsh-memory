@@ -1,7 +1,7 @@
 # 两条线各自发各自的 —— lab 是实验线（默认分支），main 是稳定线。
 #
 #   lab 分支   实验线。每次 push 都以「下一个补丁号-lab.<run_number>」发到
-#              GitHub Packages 的 `lab` dist-tag，并把 tarball 挂到固定 tag `lab`
+#              GitHub Packages 的 `lab` dist-tag，并把 tarball 挂到固定 tag `lab-latest`
 #              的预发布（prerelease）上，永不碰 latest。
 #                 装实验版：pwsh -File install.ps1 -FromRelease            # 默认 lab
 #                 装稳定版：pwsh -File install.ps1 -FromRelease -Channel stable
@@ -13,7 +13,7 @@
 #
 # 资产名是**固定**的，安装脚本只认这两个名字：
 #   releases/latest/download/dsh-memory-latest.tgz   ← stable（/latest/ 天然跳过预发布）
-#   releases/download/lab/dsh-memory-lab.tgz         ← lab（固定 tag 的预发布，每次覆盖）
+#   releases/download/lab-latest/dsh-memory-lab.tgz    ← lab（固定 tag 的预发布，每次覆盖）
 #
 # 只改文档可以写 [skip ci] 跳过编译与发布。
 
@@ -105,9 +105,9 @@ jobs:
 
           想换回稳定版：`pwsh -File install.ps1 -FromRelease -Channel stable`
           NOTES
-          # 固定 tag 每次重建：tag 跟着 lab 头走，releases/download/lab/… 永远指向最新实验版
-          gh release delete lab --yes --cleanup-tag || true
-          gh release create lab \
+          # 固定 tag 每次重建：tag lab-latest 跟着 lab 头走，releases/download/lab-latest/… 永远指向最新实验版
+          gh release delete lab-latest --yes --cleanup-tag || true
+          gh release create lab-latest \
             "dsh-memory-lab.tgz" "${{ steps.pack.outputs.file }}" \
             --target "$GITHUB_SHA" \
             --prerelease \
@@ -171,7 +171,7 @@ jobs:
           pwsh -File install.ps1 -FromRelease -Channel stable
           ```
 
-          实验版在 [lab](https://github.com/BangBang-03/dsh-memory/releases/tag/lab)。
+          实验版在 [lab-latest](https://github.com/BangBang-03/dsh-memory/releases/tag/lab-latest)。
           NOTES
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --prerelease=false --latest

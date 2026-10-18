@@ -52,8 +52,8 @@
 
 .PARAMETER Channel
   Release 通道，默认 lab（实验线）：
-    lab    实验线。资产挂在固定 tag `lab` 的预发布上，lab 分支每推一次就覆盖：
-           releases/download/lab/dsh-memory-lab.tgz
+    lab    实验线。资产挂在固定 tag `lab-latest` 的预发布上，lab 分支每推一次就覆盖：
+           releases/download/lab-latest/dsh-memory-lab.tgz
     stable 稳定线。资产挂在最新正式 Release 上（/latest/ 天然跳过预发布）：
            releases/latest/download/dsh-memory-latest.tgz
   两个通道解包到同一个 ~/.dsh/plugins/dsh-memory，换通道就是重跑一次命令。
@@ -218,10 +218,10 @@ if ($FromNpm -or $FromUrl -or $FromRelease) {
   # 两条线的固定资产名（见 README「分支与发布通道」）。公开仓库的 Release 资产
   # 匿名可下，所以 -FromRelease 不需要任何凭据 —— 这是日常首选路径。
   $releaseUrls = @{
-    lab    = 'https://github.com/BangBang-03/dsh-memory/releases/download/lab/dsh-memory-lab.tgz'
+    lab    = 'https://github.com/BangBang-03/dsh-memory/releases/download/lab-latest/dsh-memory-lab.tgz'
     stable = 'https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz'
   }
-  $releaseTags = @{ lab = 'lab'; stable = 'latest' }
+  $releaseTags = @{ lab = 'lab-latest'; stable = 'latest' }
   $releaseAssets = @{ lab = 'dsh-memory-lab.tgz'; stable = 'dsh-memory-latest.tgz' }
   $releaseTag = ''
   $releaseAsset = ''

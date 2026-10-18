@@ -267,7 +267,9 @@ for (const [name, sha] of tagTargets) {
 
 if (branchRefs.length > 0) {
 	const head = branchRefs.find((ref) => ref.ref === "refs/heads/main") ?? branchRefs[0];
-	git("update-ref", "HEAD", head === undefined ? "refs/heads/main" : head.ref.replace("refs/", ""));
+	// HEAD 用 symbolic-ref 指过去（update-ref HEAD <sha> 会把它变成游离头）
+	const headBranch = (head ?? { ref: "refs/heads/main" }).ref.replace("refs/heads/", "");
+	git("symbolic-ref", "HEAD", "refs/heads/" + headBranch);
 	// 工作区跟随 HEAD：本地已有全部对象，不需要网络
 	git("reset", "--hard", "HEAD");
 }

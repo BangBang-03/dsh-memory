@@ -74,8 +74,11 @@ async function remoteCommit(sha) {
 
 const treeOf = (commit) => (typeof commit.tree === "string" ? commit.tree : commit.tree.sha);
 
-const branch = branchArg || git("rev-parse", "--abbrev-ref", "HEAD");
-if (branch === "HEAD") throw new Error("当前处于游离 HEAD，先 checkout 到分支再推");
+// 用 branch --show-current 而不是 rev-parse --abbrev-ref：后者在同名 tag 存在时
+// 返回 "heads/lab" 这种带命名空间前缀的名字（tag lab 与分支 lab 共存是常态）。
+const branch = branchArg || git("branch", "--show-current");
+if (!branch) throw new Error("当前处于游离 HEAD，先 checkout 到分支再推");
+if (/^(refs\/|heads\/|tags\/)/u.test(branch)) throw new Error("分支名看起来带命名空间前缀：" + branch + "（同名 tag 会干扰解析，用 --branch 明确指定）");
 const localHead = git("rev-parse", "HEAD");
 
 const remoteHeadRef = await api("GET", `/repos/${repo}/git/ref/heads/${branch}`).catch((error) => {

@@ -162,12 +162,12 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 
 | 分支 | 角色 | 什么时候用 | 推到哪儿 |
 | --- | --- | --- | --- |
-| `lab` | 实验线（默认） | 平时开发、日常装机 | GitHub Packages 的 `lab` dist-tag + 固定 tag `lab` 的预发布 |
+| `lab` | 实验线（默认） | 平时开发、日常装机 | GitHub Packages 的 `lab` dist-tag + 固定 tag `lab-latest` 的预发布 |
 | `main` | 稳定线 | 攒够了、验证过的版本 | `latest` dist-tag + `vX.Y.Z` 正式 Release |
 
 - 往 `lab` 推一次提交，CI 就发一个预发布 `X.Y.(Z+1)-lab.<run_number>`：版本号天然唯一，
   不覆盖 `latest`，正式发 `X.Y.Z` 时又排在所有 `-lab.N` 之上，semver 顺序不会拧。
-  同时刷新固定 tag `lab` 的预发布资产 `dsh-memory-lab.tgz`。
+  同时刷新固定 tag `lab-latest` 的预发布资产 `dsh-memory-lab.tgz`。
 - 确认稳定后：把 `lab` 合进 `main`、`package.json` 改成正式版本号，再打 `vX.Y.Z` 标签，
   CI 发 `latest` 并建正式 Release（资产 `dsh-memory-latest.tgz`）。
 - 通道切换就是重跑安装命令：`install.ps1 -FromRelease`（默认 lab）/ `-Channel stable`。
@@ -206,7 +206,7 @@ node tools/release.mjs                 # 推 main + 打 vX.Y.Z 标签 → 正式
 # 默认走 lab 实验线；换稳定线加 -Channel stable。资产名固定，链接永远是那一个：
 pwsh -File install.ps1 -FromRelease                       # lab（默认，实验线）
 pwsh -File install.ps1 -FromRelease -Channel stable       # stable（稳定线）
-#   lab    -> releases/download/lab/dsh-memory-lab.tgz          （固定 tag 的预发布，每次 lab 推送覆盖）
+#   lab    -> releases/download/lab-latest/dsh-memory-lab.tgz     （固定 tag 的预发布，每次 lab 推送覆盖）
 #   stable -> releases/latest/download/dsh-memory-latest.tgz    （/latest/ 天然跳过预发布）
 
 # 方式二：走 GitHub Packages 的 npm registry（需要带 read:packages 的 PAT）
