@@ -149,6 +149,41 @@ function Save-Json([string]$Path, $Object) {
   }
 }
 
+<#
+下载 tarball：先直连 Release 资产地址；连不上就改走 api.github.com 的资产端点。
+本机到 github.com:443 时通时不通（DNS 能解析、握手被掐），api.github.com 一直可达，
+所以这两条路是「日常能装」的关键，不是冗余代码。
+#>
+function Save-Tarball([string]$Url, [string]$OutFile, [hashtable]$Headers, [string]$ReleaseTag, [string]$AssetName) {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  $attempt = 0
+  while ($attempt -lt 2) {
+    $attempt += 1
+    try {
+      Invoke-WebRequest -Uri $Url -Headers $Headers -OutFile $OutFile -TimeoutSec 90 -ErrorAction Stop
+      return
+    } catch {
+      Write-Step "直连下载失败（第 $attempt 次）：$($_.Exception.Message)"
+      if ($attempt -lt 2) { Start-Sleep -Seconds 2 }
+    }
+  }
+  if (-not $ReleaseTag -or -not $AssetName) { throw "下载失败：$Url" }
+
+  $apiBase = 'https://api.github.com/repos/BangBang-03/dsh-memory/releases'
+  $releaseUrl = if ($ReleaseTag -eq 'latest') { "$apiBase/latest" } else { "$apiBase/tags/$ReleaseTag" }
+  Write-Step "改走 GitHub API：$releaseUrl"
+  $apiHeaders = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'dsh-memory-install' }
+  if ($Headers -and $Headers.ContainsKey('Authorization')) { $apiHeaders['Authorization'] = $Headers['Authorization'] }
+  $release = Invoke-RestMethod -Uri $releaseUrl -Headers $apiHeaders -TimeoutSec 60 -ErrorAction Stop
+  $asset = @($release.assets) | Where-Object { $_.name -eq $AssetName } | Select-Object -First 1
+  if (-not $asset) {
+    throw "Release $ReleaseTag 里没有资产 $AssetName（现有：$((@($release.assets) | ForEach-Object { $_.name }) -join ', ')）"
+  }
+  $apiHeaders['Accept'] = 'application/octet-stream'
+  Write-Step "下载资产 $AssetName（$([math]::Round($asset.size / 1024)) KB）"
+  Invoke-WebRequest -Uri "$apiBase/assets/$($asset.id)" -Headers $apiHeaders -OutFile $OutFile -TimeoutSec 180 -ErrorAction Stop
+}
+
 <# 删包目录专用：PS 5.1 的 Remove-Item -Recurse 会跟进 junction 删到目标里，
    会把共享的 @deepseek-ai 模块清掉。先把目录里已知的 junction 用 rmdir 摘掉再删本体。 #>
 function Remove-PackageDir([string]$Path) {
@@ -186,12 +221,18 @@ if ($FromNpm -or $FromUrl -or $FromRelease) {
     lab    = 'https://github.com/BangBang-03/dsh-memory/releases/download/lab/dsh-memory-lab.tgz'
     stable = 'https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz'
   }
+  $releaseTags = @{ lab = 'lab'; stable = 'latest' }
+  $releaseAssets = @{ lab = 'dsh-memory-lab.tgz'; stable = 'dsh-memory-latest.tgz' }
+  $releaseTag = ''
+  $releaseAsset = ''
 
   if ($FromUrl) {
     $tarball = $FromUrl
     $specLabel = "tarball $FromUrl"
   } elseif ($FromRelease) {
     $tarball = $releaseUrls[$Channel]
+    $releaseTag = $releaseTags[$Channel]
+    $releaseAsset = $releaseAssets[$Channel]
     $specLabel = "$Channel 通道 $tarball"
   } else {
     # 规范：<name> 或 <name>@<version>；scoped 名自带开头的 @，版本分隔要找第二个 @。
@@ -260,7 +301,7 @@ if ($FromNpm -or $FromUrl -or $FromRelease) {
   try {
     New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
     $tempTgz = Join-Path $workDir 'pkg.tgz'
-    Invoke-WebRequest -Uri $tarball -Headers $headers -OutFile $tempTgz
+    Save-Tarball -Url $tarball -OutFile $tempTgz -Headers $headers -ReleaseTag $releaseTag -AssetName $releaseAsset
     # GNU tar 会把 "C:\xxx" 的盘符冒号当成远程主机名，所以进到解包目录用相对路径解，
     # GNU/BSD 两种 tar 都不吃亏。
     Push-Location -LiteralPath $extractDir
@@ -372,9 +413,13 @@ $linkTarget = 'link:' + ($pkgRoot -replace '\\', '/')
 $bundles = @($json.dsh.profile.bundles)
 $hasBundle = $bundles -contains $PackageName
 $hasDep = $json.dependencies -and ($json.dependencies.PSObject.Properties.Name -contains $PackageName)
+# 依赖值也要对：切通道（源码 link: <-> 远程解包目录）时键还在、值却指别处，
+# 只查「有没有这个键」会漏掉，结果 junction 与清单各指一边。
+$depValue = if ($hasDep) { [string]$json.dependencies.$PackageName } else { '' }
+$depWrong = $hasDep -and ($depValue -ne $linkTarget)
 
-if ($hasBundle -and $hasDep) {
-  Write-Step "package.json 已经是目标状态（bundles 与 dependencies 都含 $PackageName）"
+if ($hasBundle -and $hasDep -and -not $depWrong) {
+  Write-Step "package.json 已经是目标状态（bundles 与 dependencies 都含 $PackageName 且指向 $pkgRoot）"
 } else {
   if (-not $DryRun) {
     $backup = Get-BackupPath $profileJson
@@ -387,17 +432,18 @@ if ($hasBundle -and $hasDep) {
     $json.dsh.profile.bundles = @($bundles + $PackageName)
     Write-Step "bundles += $PackageName"
   }
-  if (-not $hasDep) {
+  if (-not $hasDep -or $depWrong) {
     if (-not $json.dependencies) { $json | Add-Member -NotePropertyName dependencies -NotePropertyValue ([pscustomobject]@{}) }
     $json.dependencies | Add-Member -NotePropertyName $PackageName -NotePropertyValue $linkTarget -Force
-    Write-Step "dependencies.$PackageName = $linkTarget"
+    if ($depWrong) { Write-Step "dependencies.$PackageName : $depValue -> $linkTarget" }
+    else { Write-Step "dependencies.$PackageName = $linkTarget" }
   }
   Save-Json -Path $profileJson -Object $json
   Write-Step "写入 $profileJson"
 }
 
-# 3. profile junction
-New-JunctionSafe -Path (Join-Path $profileDir "node_modules\$PackageName") -Target $pkgRoot | Out-Null
+# 3. profile junction（源码 link: 与远程解包目录之间切换时重指，只动 junction 本身）
+New-JunctionSafe -Path (Join-Path $profileDir "node_modules\$PackageName") -Target $pkgRoot -Repoint | Out-Null
 
 Write-Host ''
 if ($DryRun) { Write-Host 'dry run 结束，没有改动任何文件。' }

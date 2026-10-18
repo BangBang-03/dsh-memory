@@ -231,29 +231,34 @@ for (const ref of tagRefs) {
 }
 
 // ---- 移动本地 refs --------------------------------------------------------
+/** 本地 ref 现在指向哪（不存在返回空串，不喷 stderr）。 */
+const localRef = (refName) =>
+	execFileSync("git", ["-C", dir, "rev-parse", "--verify", refName], {
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "ignore"],
+	}).trim() || "";
+
 let moved = 0;
 for (const ref of branchRefs) {
 	const name = ref.ref.replace("refs/heads/", "");
-	const current = (() => {
-		try {
-			return git("rev-parse", "--verify", "refs/heads/" + name).trim();
-		} catch {
-			return "";
-		}
-	})();
+	let current = "";
+	try {
+		current = localRef("refs/heads/" + name);
+	} catch {
+		current = "";
+	}
 	if (current === ref.object.sha) continue;
 	git("update-ref", "refs/heads/" + name, ref.object.sha);
 	console.log("branch " + name.padEnd(6) + " -> " + ref.object.sha.slice(0, 9) + (current ? " (was " + current.slice(0, 9) + ")" : " (new)"));
 	moved += 1;
 }
 for (const [name, sha] of tagTargets) {
-	const current = (() => {
-		try {
-			return git("rev-parse", "--verify", "refs/tags/" + name).trim();
-		} catch {
-			return "";
-		}
-	})();
+	let current = "";
+	try {
+		current = localRef("refs/tags/" + name);
+	} catch {
+		current = "";
+	}
 	if (current !== sha) {
 		git("update-ref", "refs/tags/" + name, sha);
 		moved += 1;

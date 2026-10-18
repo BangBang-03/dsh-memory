@@ -1,0 +1,6 @@
+# 行尾统一 LF。
+#
+# 不加这条的话，CI 在 windows runner 上 checkout 会按 core.autocrlf=true 转成 CRLF，
+# `npm pack` 出来的 tarball 就跟仓库里的字节不一致（插件照样能跑，但发出去的产物
+# 和仓库不是同一份，比对 hash 会全红）。GFM 的 diff 也更干净。
+* text=auto eol=lf
