@@ -156,6 +156,41 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 `new URL("memory/api/…", document.baseURI)` 解析，反代目录前缀和 `dsh-app://` 外壳下都能到达。
 非回环来源会被 403 拒绝。
 
+## 分支与发布通道
+
+仓库两条线，**默认分支是 `lab`**：
+
+| 分支 | 角色 | 什么时候用 | 推到哪儿 |
+| --- | --- | --- | --- |
+| `lab` | 实验线（默认） | 平时开发、日常装机 | GitHub Packages 的 `lab` dist-tag + 固定 tag `lab` 的预发布 |
+| `main` | 稳定线 | 攒够了、验证过的版本 | `latest` dist-tag + `vX.Y.Z` 正式 Release |
+
+- 往 `lab` 推一次提交，CI 就发一个预发布 `X.Y.(Z+1)-lab.<run_number>`：版本号天然唯一，
+  不覆盖 `latest`，正式发 `X.Y.Z` 时又排在所有 `-lab.N` 之上，semver 顺序不会拧。
+  同时刷新固定 tag `lab` 的预发布资产 `dsh-memory-lab.tgz`。
+- 确认稳定后：把 `lab` 合进 `main`、`package.json` 改成正式版本号，再打 `vX.Y.Z` 标签，
+  CI 发 `latest` 并建正式 Release（资产 `dsh-memory-latest.tgz`）。
+- 通道切换就是重跑安装命令：`install.ps1 -FromRelease`（默认 lab）/ `-Channel stable`。
+  两个通道解包到同一个 `~/.dsh/plugins/dsh-memory`，切换是原地替换。
+
+**日常开发流程**（本机到 `github.com:443` 不通，推拉都走 GitHub REST API）：
+
+```powershell
+git checkout lab                       # 默认分支；平时只在这里动
+# …改代码…
+node test/run-all.mjs                  # 9 个套件全绿再推
+git add -A; git commit -m "feat: …"
+node tools/push.mjs                    # 等价 git push：推 lab，CI 立刻发预发布
+pwsh -File install.ps1 -FromRelease    # 装刚发出去的实验版
+
+# 攒够一个版本、验证稳定之后
+git checkout main && git merge --ff-only lab
+node tools/release.mjs                 # 推 main + 打 vX.Y.Z 标签 → 正式版
+```
+
+`tools/sync.mjs` 是反方向的 `git pull`：按 GitHub API 把远端所有分支与标签逐个对象重建到本地
+（本机 `git fetch` 不通时用）。只在本地仓库损坏或换机器时用——它用远端内容覆盖工作区已跟踪的文件。
+
 ## npm 包与远程更新
 
 包以 **`@bangbang-03/dsh-memory`** 发布（`dsh-memory` 裸名在 npmjs 已被他人占用）。发布位置是
@@ -167,19 +202,21 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 
 ```powershell
 # 方式一：Release 资产直连（公开、零凭据，推荐）。
-# 每次发版都会上传固定名资产 dsh-memory-latest.tgz，/latest/download/ 永远指向最新版：
-pwsh -File install.ps1 -FromUrl "https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz"
+# 默认走 lab 实验线；换稳定线加 -Channel stable。资产名固定，链接永远是那一个：
+pwsh -File install.ps1 -FromRelease                       # lab（默认，实验线）
+pwsh -File install.ps1 -FromRelease -Channel stable       # stable（稳定线）
+#   lab    -> releases/download/lab/dsh-memory-lab.tgz          （固定 tag 的预发布，每次 lab 推送覆盖）
+#   stable -> releases/latest/download/dsh-memory-latest.tgz    （/latest/ 天然跳过预发布）
 
 # 方式二：走 GitHub Packages 的 npm registry（需要带 read:packages 的 PAT）
-pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory" `
+pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory@lab" `
   -Registry https://npm.pkg.github.com -NpmToken $env:NPM_TOKEN
-
-# 锁版本用 -FromNpm "@bangbang-03/dsh-memory@0.3.2"；-DryRun 只打印计划，不联网不落盘
+#   版本位可以是 dist-tag（latest / lab）或具体版本号（如 @0.5.1）
 ```
 
-`-FromNpm` 会把包的 tarball 拉下来解包到 `~/.dsh/plugins/dsh-memory`，然后对它执行与本地安装相同的
-三步（垫片 / profile 清单 / junction）。**更新就是重跑同一条命令**：脚本会整体替换 plugins 里的旧版本，
-junction 与 profile 引用的目录名不变，DSH 侧不需要任何动作；想锁版本就在包名后带 `@0.3.1`。
+`-FromRelease` / `-FromNpm` 都会把包的 tarball 拉下来解包到 `~/.dsh/plugins/dsh-memory`，然后对它执行与
+本地安装相同的三步（垫片 / profile 清单 / junction）。**更新就是重跑同一条命令**：脚本会整体替换 plugins
+里的旧版本，junction 与 profile 引用的目录名不变，DSH 侧不需要任何动作；想锁版本就在包名后带 `@0.5.1`。
 `-DryRun` 只打印计划，不联网不落盘。替换旧版本时脚本会先摘掉目录内的垫片 junction 再删
 （PowerShell 5.1 的 `Remove-Item -Recurse` 会跟进 junction 删到共享模块里，这一步是防它的）。
 
@@ -188,11 +225,20 @@ junction 与 profile 引用的目录名不变，DSH 侧不需要任何动作；�
 
 ### 发布新版本（维护者）
 
+发布全在 CI 里做（本机 PAT 没有 `write:packages`），本地只负责推提交和打标签。
+两条线怎么分工见上面的「分支与发布通道」。
+
 ```powershell
-npm publish --registry https://npm.pkg.github.com --access public
-# 凭据：把带 write:packages 的 PAT 写进 ~/.npmrc 的 //npm.pkg.github.com/:_authToken，
-# 或临时用环境变量注入，不要把 token 提交进仓库。
+# 实验版：推 lab 就有，不用手动发
+node tools/push.mjs
+
+# 稳定版：在 main 上打 v<package.json 版本> 标签
+node tools/release.mjs
 ```
+
+CI（`.github/workflows/publish.yml`）在 `lab` 分支推送时发 `-lab.<run_number>` 预发布，
+在 `v*` 标签时发 `latest` 正式版；两条线都先跑 5 个纯逻辑层套件，任一套件失败就不发。
+`publish-npmjs.yml` 是另一条手动通道（需要仓库密钥 `NPM_TOKEN`），按需点一次即可。
 
 ## 档案（默认视图）
 

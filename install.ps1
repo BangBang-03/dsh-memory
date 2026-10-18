@@ -23,11 +23,13 @@
 
   改 package.json 前一定先备份；写盘用「临时文件 + 替换」，避免上次那种截断事故。
 
-  远程更新模式（-FromNpm）：先从 npm registry 拉取指定包的 tarball，解包到
+  远程更新模式（-FromRelease / -FromNpm / -FromUrl）：先把 tarball 解包到
   <DshHome>/plugins/dsh-memory，再对它执行上面三步。重跑同一条命令即完成更新
   （脚本会整体替换 plugins 里的旧版本，junction 与 profile 引用的目录名不变，
-  所以 DSH 侧不需要任何额外动作）。registry 用 GitHub Packages 时把 PAT 传给
-  -NpmToken（需 read:packages）。
+  所以 DSH 侧不需要任何额外动作）。
+  -FromRelease 走公开的 Release 资产，匿名可下，按 -Channel 选 lab（默认）或 stable；
+  -FromNpm 走 registry 协议（可写 dist-tag，如 @lab），用 GitHub Packages 时把 PAT
+  传给 -NpmToken（需 read:packages）。
 
 .PARAMETER Profile
   profile 名，默认 desktop。
@@ -36,7 +38,7 @@
   DSH 主目录，默认 $env:DSH_HOME 或 ~/.dsh。
 
 .PARAMETER PackageRoot
-  本包根目录，默认脚本所在目录。-FromNpm 模式下忽略，改用解包目录。
+  本包根目录，默认脚本所在目录。远程模式（-FromRelease / -FromNpm / -FromUrl）下忽略，改用解包目录。
 
 .PARAMETER FromNpm
   远程包描述，如 "@bangbang-03/dsh-memory"（取 latest）或 "@bangbang-03/dsh-memory@0.3.1"（锁定版本）。
@@ -44,6 +46,17 @@
 .PARAMETER FromUrl
   直接下载 tarball 的 URL（不走 registry 协议）。公开仓库的 Release 资产不需要任何凭据：
   https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz
+
+.PARAMETER FromRelease
+  从 GitHub Release 装指定通道的最新版（公开资产，不需要任何凭据）。通道见 -Channel。
+
+.PARAMETER Channel
+  Release 通道，默认 lab（实验线）：
+    lab    实验线。资产挂在固定 tag `lab` 的预发布上，lab 分支每推一次就覆盖：
+           releases/download/lab/dsh-memory-lab.tgz
+    stable 稳定线。资产挂在最新正式 Release 上（/latest/ 天然跳过预发布）：
+           releases/latest/download/dsh-memory-latest.tgz
+  两个通道解包到同一个 ~/.dsh/plugins/dsh-memory，换通道就是重跑一次命令。
 
 .PARAMETER Registry
   npm registry 根地址，默认 https://registry.npmjs.org；GitHub Packages 用
@@ -57,8 +70,10 @@
   只打印将要做的改动，不落盘、不联网。
 
 .EXAMPLE
-  pwsh -File install.ps1
+  pwsh -File install.ps1                         # 装当前目录这份源码（开发用）
   pwsh -File install.ps1 -Profile web -DryRun
+  pwsh -File install.ps1 -FromRelease            # 装 lab 通道最新实验版（日常默认）
+  pwsh -File install.ps1 -FromRelease -Channel stable
   pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory" -Registry https://npm.pkg.github.com -NpmToken $env:NPM_TOKEN
 #>
 [CmdletBinding()]
@@ -68,6 +83,9 @@ param(
   [string]$PackageRoot = $PSScriptRoot,
   [string]$FromNpm = '',
   [string]$FromUrl = '',
+  [switch]$FromRelease,
+  [ValidateSet('lab', 'stable')]
+  [string]$Channel = 'lab',
   [string]$Registry = 'https://registry.npmjs.org',
   [string]$NpmToken = $(if ($env:NPM_TOKEN) { $env:NPM_TOKEN } else { '' }),
   [switch]$DryRun
@@ -96,7 +114,7 @@ function Get-BackupPath([string]$Path) {
   return $candidate
 }
 
-function New-JunctionSafe([string]$Path, [string]$Target) {
+function New-JunctionSafe([string]$Path, [string]$Target, [switch]$Repoint) {
   $parent = Split-Path -Parent $Path
   if (-not (Test-Path -LiteralPath $parent)) {
     Write-Step "建目录 $parent"
@@ -107,7 +125,14 @@ function New-JunctionSafe([string]$Path, [string]$Target) {
     if ($item.LinkType -ne 'Junction') { throw "已存在且不是 junction，拒绝覆盖：$Path" }
     $current = @($item.Target)[0]
     if ($current -eq $Target) { Write-Step "junction 已就位：$Path"; return $false }
-    throw "junction 指向别处：$Path -> $current（期望 $Target）"
+    if (-not $Repoint) { throw "junction 指向别处：$Path -> $current（期望 $Target）" }
+    # 只给「包内垫片」用：DSH 升级后官方包位置会变，垫片跟着重指是正常维护动作。
+    Write-Step "重指 junction $Path -> $Target（原 $current）"
+    if (-not $DryRun) {
+      cmd /c rmdir "$Path" | Out-Null
+      New-Item -ItemType Junction -Path $Path -Target $Target | Out-Null
+    }
+    return $true
   }
   Write-Step "建 junction $Path -> $Target"
   if (-not $DryRun) { New-Item -ItemType Junction -Path $Path -Target $Target | Out-Null }
@@ -149,15 +174,25 @@ $pkgRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
 # （比如 Release 资产，公开仓库不需要任何凭据）。
 # ---------------------------------------------------------------- #
 
-if ($FromNpm -or $FromUrl) {
+if ($FromNpm -or $FromUrl -or $FromRelease) {
   $remoteTarget = Join-Path (Join-Path $DshHome 'plugins') $RemoteDirName
   $tarball = ''
   $specLabel = ''
   $npmName = ''
 
+  # 两条线的固定资产名（见 README「分支与发布通道」）。公开仓库的 Release 资产
+  # 匿名可下，所以 -FromRelease 不需要任何凭据 —— 这是日常首选路径。
+  $releaseUrls = @{
+    lab    = 'https://github.com/BangBang-03/dsh-memory/releases/download/lab/dsh-memory-lab.tgz'
+    stable = 'https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz'
+  }
+
   if ($FromUrl) {
     $tarball = $FromUrl
     $specLabel = "tarball $FromUrl"
+  } elseif ($FromRelease) {
+    $tarball = $releaseUrls[$Channel]
+    $specLabel = "$Channel 通道 $tarball"
   } else {
     # 规范：<name> 或 <name>@<version>；scoped 名自带开头的 @，版本分隔要找第二个 @。
     $npmName = $FromNpm
@@ -178,7 +213,7 @@ if ($FromNpm -or $FromUrl) {
   }
 
   if ($DryRun) {
-    if ($FromUrl) { Write-Step "[dry] 会从 $FromUrl 下载 tarball" }
+    if ($tarball) { Write-Step "[dry] 会从 $tarball 下载 tarball（$specLabel）" }
     else { Write-Step "[dry] 会从 $Registry 拉 $specLabel" }
     Write-Step "[dry] 解包替换 $remoteTarget，再按本地三步安装（垫片 / package.json / junction）"
     Write-Host ''
@@ -203,10 +238,17 @@ if ($FromNpm -or $FromUrl) {
     } catch {
       throw "从 $Registry 查询 $npmName 失败：$($_.Exception.Message)（包不存在、版本不存在或 registry 不可达）"
     }
-    $version = if ($wantVersion) { $wantVersion } else { [string]$meta.'dist-tags'.latest }
+    $distTags = $meta.'dist-tags'
+    $version = if ($wantVersion) { $wantVersion } else { [string]$distTags.latest }
+    # 版本位写的是 dist-tag（latest / lab / beta …）时按标签解析，别当成版本号去查
+    if ($wantVersion -and $distTags -and ($distTags.PSObject.Properties.Name -contains $wantVersion)) {
+      $version = [string]$distTags.PSObject.Properties[$wantVersion].Value
+    }
     if (-not $version) { throw "registry 元数据里没有 dist-tags.latest，且未指定版本" }
     $entry = $meta.versions.PSObject.Properties[$version]
-    if (-not $entry) { throw "registry 上没有 $npmName@$version（现有版本：$(@($meta.versions.PSObject.Properties.Name) -join ', '))" }
+    if (-not $entry) {
+      throw "registry 上没有 $npmName@$version（现有版本：$(@($meta.versions.PSObject.Properties.Name) -join ', ')；dist-tags：$($distTags.PSObject.Properties.Name -join ', ')）"
+    }
     $tarball = [string]$entry.Value.dist.tarball
     if (-not $tarball) { throw "registry 元数据缺 dist.tarball" }
   }
@@ -306,13 +348,19 @@ if (Test-Path -LiteralPath $legacyLink) {
   }
 }
 
-$sharedModules = Join-Path (Join-Path $DshHome 'profiles') 'node_modules'
-if (-not (Test-Path -LiteralPath (Join-Path $sharedModules '@deepseek-ai'))) {
-  Write-Warning "找不到 $sharedModules\@deepseek-ai，垫片可能指向一个不存在的目录"
+# 垫片的目标：profiles 的共享 scope（DSH 官方包 @deepseek-ai/*）。
+# 注意：DSH 升级换 runtime 之后这里可能被清空/摘成死链（升级时会清掉指向旧 runtime 的
+# junction），那样垫片指向一个空目录，本地跑测试就会 import 不到 @deepseek-ai/*。
+# 这不是安装脚本能自己修的（官方包在应用自己的 asar / runtime 里），所以只做检查与提示。
+$sharedScope = Join-Path (Join-Path (Join-Path $DshHome 'profiles') 'node_modules') '@deepseek-ai'
+if (-not (Test-Path -LiteralPath $sharedScope)) {
+  Write-Warning "找不到 $sharedScope，垫片可能指向一个不存在的目录"
+} elseif (@(Get-ChildItem -LiteralPath $sharedScope -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+  Write-Warning "$sharedScope 是空目录（DSH 升级后常见）：插件在应用里照常工作，但本机跑 host/activate 套件会 import 不到 @deepseek-ai/*"
 }
 
-# 1. 垫片
-New-JunctionSafe -Path (Join-Path $pkgRoot 'node_modules\@deepseek-ai') -Target (Join-Path $sharedModules '@deepseek-ai') | Out-Null
+# 1. 垫片（目标位置会随 DSH 升级变化，所以允许重指）
+New-JunctionSafe -Path (Join-Path $pkgRoot 'node_modules\@deepseek-ai') -Target $sharedScope -Repoint | Out-Null
 
 # 2. package.json
 $raw = Get-Content -LiteralPath $profileJson -Raw
@@ -354,7 +402,11 @@ New-JunctionSafe -Path (Join-Path $profileDir "node_modules\$PackageName") -Targ
 Write-Host ''
 if ($DryRun) { Write-Host 'dry run 结束，没有改动任何文件。' }
 else {
-  Write-Host "装好了。重启 DSH 桌面端（profile=$Profile）后：设置 → 记忆。"
-  if ($FromNpm -or $FromUrl) { Write-Host "更新：重跑同一条 -FromNpm / -FromUrl 命令即可，脚本会整体替换 $remoteTarget 里的旧版本。" }
+  $installedVersion = ((Get-Content -LiteralPath (Join-Path $pkgRoot 'package.json') -Raw) | ConvertFrom-Json).version
+  Write-Host "装好了（$PackageName@$installedVersion）。重启 DSH 桌面端（profile=$Profile）后：设置 → 记忆。"
+  if ($FromNpm -or $FromUrl -or $FromRelease) {
+    Write-Host "更新：重跑同一条命令即可，脚本会整体替换 $remoteTarget 里的旧版本（通道之间也这样切）。"
+  }
+  if ($FromRelease) { Write-Host "通道：$Channel（lab 实验线 / stable 稳定线；换通道加 -Channel stable）。" }
   Write-Host "回滚： pwsh -File uninstall.ps1 -Profile $Profile"
 }
