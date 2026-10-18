@@ -178,9 +178,10 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 9 个套件全绿再推
+node test/run-all.mjs                  # 本机跑一遍（CI 用其中 5 个纯逻辑层套件把关）
 git add -A; git commit -m "feat: …"
 node tools/push.mjs                    # 等价 git push：推 lab，CI 立刻发预发布
+node tools/status.mjs                  # 两条线的头、lab/stable 通道、最近几次 CI
 pwsh -File install.ps1 -FromRelease    # 装刚发出去的实验版
 
 # 攒够一个版本、验证稳定之后

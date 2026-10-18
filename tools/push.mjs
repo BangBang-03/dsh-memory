@@ -88,6 +88,7 @@ console.log("repo     " + repo);
 console.log("branch   " + branch + "  (本地 " + localHead.slice(0, 9) + ", 远端 " + (remoteHead ? remoteHead.slice(0, 9) : "(新建)") + ")");
 
 const parentsOf = (sha) => git("rev-list", "--parents", "-n", "1", sha).split(/\s+/u).slice(1);
+const localTreeOf = (sha) => git("rev-parse", sha + "^{tree}");
 
 /** 远端有没有这个提交（GET 404 = 没有）。 */
 async function remoteHas(sha) {
@@ -100,22 +101,30 @@ async function remoteHas(sha) {
 	}
 }
 
-/** 从本地 HEAD 往回走，收集远端缺的提交（老到新）。 */
+/**
+ * 从本地 HEAD 往回走，收集远端缺的提交（老到新）。
+ *
+ * 基点按**内容**认：API 建的提交时区被归一化，sha 与本地不同但 tree 相同，
+ * 所以碰到「tree 等于远端头」的本地提交就停下 —— 它之后的才是要推的。
+ */
 async function collect() {
+	const remoteHeadTree = remoteHead === "" ? "" : treeOf(await remoteCommit(remoteHead));
 	const chain = [];
 	let cursor = localHead;
 	while (true) {
-		// 已推到远端的位置：停下
-		if (remoteHead !== "" && cursor === remoteHead) break;
+		if (remoteHead !== "") {
+			if (cursor === remoteHead) break;
+			if (localTreeOf(cursor) === remoteHeadTree) break; // 内容基点
+		} else if (await remoteHas(cursor)) {
+			break; // 新分支：远端已有这个提交
+		}
 		chain.push(cursor);
 		const parents = parentsOf(cursor);
 		if (parents.length === 0) {
-			if (remoteHead !== "") throw new Error("远端分叉：远端有本地没有的提交，先 node tools/sync.mjs");
+			if (remoteHead !== "") throw new Error("远端分叉：找不到与远端头内容一致的本地提交，先 node tools/sync.mjs");
 			break; // 根提交：从零建历史
 		}
 		if (parents.length > 1) throw new Error("合并提交暂不支持直推，请先转成线性历史：" + cursor.slice(0, 9));
-		// 新分支没有远端头可比，就靠「父提交在不在远端」找基点
-		if (remoteHead === "" && (await remoteHas(parents[0]))) break;
 		cursor = parents[0];
 		if (chain.length > 100) throw new Error("提交链过长（>100），先 node tools/sync.mjs 对齐");
 	}
@@ -218,7 +227,9 @@ for (const sha of chain) {
 		committer,
 	});
 	if (created.sha !== sha) {
-		console.log("note     " + sha.slice(0, 9) + " -> " + created.sha.slice(0, 9) + "（对象字节等价，sha 不同）");
+		console.log(
+			"note     " + sha.slice(0, 9) + " -> " + created.sha.slice(0, 9) + "（内容等价、sha 不同：GitHub 把时区归一化成 UTC；想让两边 sha 一致就在 commit 前设 TZ=UTC）",
+		);
 	}
 	remoteParentSha = created.sha;
 	moved = true;
