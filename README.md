@@ -196,29 +196,39 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 - 往 `lab` 推一次提交，CI 就发一个预发布 `X.Y.(Z+1)-lab.<run_number>`：版本号天然唯一，
   不覆盖 `latest`，正式发 `X.Y.Z` 时又排在所有 `-lab.N` 之上，semver 顺序不会拧。
   同时刷新固定 tag `lab-latest` 的预发布资产 `dsh-memory-lab.tgz`。
-- 确认稳定后：把 `lab` 合进 `main`、`package.json` 改成正式版本号，再打 `vX.Y.Z` 标签，
+- 确认稳定后：把 `lab` 快进到 `main`（`git checkout main && git merge --ff-only lab`）、`package.json` 改成正式版本号，再打 `vX.Y.Z` 标签，
   CI 发 `latest` 并建正式 Release（资产 `dsh-memory-latest.tgz`）。
 - 通道切换就是重跑安装命令：`install.ps1 -FromRelease`（默认 lab）/ `-Channel stable`。
   两个通道解包到同一个 `~/.dsh/plugins/dsh-memory`，切换是原地替换。
 
-**日常开发流程**（本机到 `github.com:443` 不通，推拉都走 GitHub REST API）：
+**日常开发流程**（lab 开发 → 测过 → 本地 main 快进 → 推 GitHub 的 lab 和 main）：
 
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍（CI 用其中 5 个纯逻辑层套件把关）
+node test/run-all.mjs                  # 本机跑一遍：10 个套件 392 条断言
 git add -A; git commit -m "feat: …"
-node tools/push.mjs                    # 等价 git push：推 lab，CI 立刻发预发布
+git push origin lab                    # 推 lab，CI 立刻发预发布
+
+git checkout main && git merge --ff-only lab   # main 只快进，不在上面直接提交
+git push origin main
+
 node tools/status.mjs                  # 两条线的头、lab/stable 通道、最近几次 CI
 pwsh -File install.ps1 -FromRelease    # 装刚发出去的实验版
 
-# 攒够一个版本、验证稳定之后
-git checkout main && git merge --ff-only lab
-node tools/release.mjs                 # 推 main + 打 vX.Y.Z 标签 → 正式版
+# 攒够一个版本、验证稳定之后（main 上）：package.json 改成正式版本号并提交
+git tag vX.Y.Z && git push origin main --tags  # 打标签 → 正式版（Release 资产由 CI 建）
 ```
 
+`git push` 是默认通道（本机 `github.com:443` 2026-10-19 实测可达，fetch/push 都正常）。
+`tools/push.mjs` / `tools/release.mjs` 走 GitHub REST API，是 git 通道不通时的兜底；**两条通道不要混用
+同一条分支**——REST 重建的提交时区归一到 `+0000`，内容相同但 SHA 不同，混推会让 lab 分叉。发现分叉：
+`git fetch` 后确认 `git diff <本地> <远端>` 为空，再把本地线 `reset --hard` 到远端，之后统一走 git。
+
 `tools/sync.mjs` 是反方向的 `git pull`：按 GitHub API 把远端所有分支与标签逐个对象重建到本地
-（本机 `git fetch` 不通时用）。只在本地仓库损坏或换机器时用——它用远端内容覆盖工作区已跟踪的文件。
+（git 通道不通或换机器时用）。只在本地仓库损坏时用——它用远端内容覆盖工作区已跟踪的文件。
+两条线的完整流程（含「main 只做快进」的理由与推送通道的分叉事故）见工作区根目录
+`PLUGIN-WORKFLOW.md`。
 
 ## npm 包与远程更新
 
@@ -259,11 +269,14 @@ pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory@lab" `
 
 ```powershell
 # 实验版：推 lab 就有，不用手动发
-node tools/push.mjs
+git push origin lab
 
 # 稳定版：在 main 上打 v<package.json 版本> 标签
-node tools/release.mjs
+git tag vX.Y.Z; git push origin main --tags
 ```
+
+git 通道不通时，同样的动作可用 `node tools/push.mjs`（推 lab）与 `node tools/release.mjs`
+（推 main + 打标签）走 GitHub REST API 兜底；**别和 git 混用同一条分支**（SHA 会不同，见上面「日常开发流程」的说明）。
 
 CI（`.github/workflows/publish.yml`）在 `lab` 分支推送时发 `-lab.<run_number>` 预发布，
 在 `v*` 标签时发 `latest` 正式版；两条线都先跑 5 个纯逻辑层套件，任一套件失败就不发。
