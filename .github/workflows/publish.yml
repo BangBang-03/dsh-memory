@@ -40,7 +40,12 @@ jobs:
     # 实验线：lab 分支每推一次发一个预发布，版本号唯一（-lab.<run_number>），
     # 不覆盖 latest；将来正式发 0.5.2 时它排在 0.5.2-lab.N 之上，semver 顺序不拧。
     if: github.ref == 'refs/heads/lab'
-    runs-on: ubuntu-latest
+    # windows：store 套件里的 slugify 按 Windows 路径语义断言（插件只跑在 DSH 桌面端），
+    # 换成 ubuntu 会有两条失败。步骤本身用 bash，跨平台写法不用改。
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +117,10 @@ jobs:
   stable:
     # 稳定线：main 上打 v* 标签才发，发到 latest 并建正式 Release。
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
