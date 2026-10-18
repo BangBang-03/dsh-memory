@@ -228,7 +228,7 @@ for (const sha of chain) {
 	});
 	if (created.sha !== sha) {
 		console.log(
-			"note     " + sha.slice(0, 9) + " -> " + created.sha.slice(0, 9) + "（内容等价、sha 不同：GitHub 把时区归一化成 UTC；想让两边 sha 一致就在 commit 前设 TZ=UTC）",
+			"note     " + sha.slice(0, 9) + " -> " + created.sha.slice(0, 9) + "（内容等价、sha 不同：GitHub 把提交时区归一化成 UTC）",
 		);
 	}
 	remoteParentSha = created.sha;
