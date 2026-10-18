@@ -220,10 +220,12 @@ pwsh -File install.ps1 -FromRelease    # 装刚发出去的实验版
 git tag vX.Y.Z && git push origin main --tags  # 打标签 → 正式版（Release 资产由 CI 建）
 ```
 
-`git push` 是默认通道（本机 `github.com:443` 2026-10-19 实测可达，fetch/push 都正常）。
-`tools/push.mjs` / `tools/release.mjs` 走 GitHub REST API，是 git 通道不通时的兜底；**两条通道不要混用
-同一条分支**——REST 重建的提交时区归一到 `+0000`，内容相同但 SHA 不同，混推会让 lab 分叉。发现分叉：
-`git fetch` 后确认 `git diff <本地> <远端>` 为空，再把本地线 `reset --hard` 到远端，之后统一走 git。
+`git push` 优先，但本机 `github.com:443` **时通时不通**（2026-10-19 实测：短时可用，几分钟后又连续超时；
+每次失败要等约 21 秒）。所以日常用工作区根的 `promote.ps1`：先试 git，失败自动转 REST 兜底
+（`tools/push.mjs` / `tools/release.mjs`，`-Channel rest` 跳过探测），最后核对远端 ref。
+**两条通道别混用**——REST 重建的提交时区归一到 `+0000`，内容相同但 SHA 不同，混推会让两条线出现平行提交
+（本轮就处理过一次）。手动恢复：`git fetch` 后确认 `git diff <本地> <远端>` 为空，再把本地线
+`reset --hard` 到远端，之后统一只用一种通道。
 
 `tools/sync.mjs` 是反方向的 `git pull`：按 GitHub API 把远端所有分支与标签逐个对象重建到本地
 （git 通道不通或换机器时用）。只在本地仓库损坏时用——它用远端内容覆盖工作区已跟踪的文件。
