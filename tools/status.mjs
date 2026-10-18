@@ -39,7 +39,7 @@ for (const branch of branches) {
 }
 
 const releases = (await api(`/repos/${repo}/releases?per_page=20`)) ?? [];
-const lab = releases.find((release) => release.tag_name === "lab");
+const lab = releases.find((release) => release.tag_name === "lab-latest");
 const stable = releases.find((release) => release.prerelease === false);
 for (const [label, release] of [
 	["lab 通道   ", lab],
