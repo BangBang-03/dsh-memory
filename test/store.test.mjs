@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const mod = await import('../lib/store.js');
 const {
@@ -17,6 +18,8 @@ const {
   similarity,
   rankRecords,
   renderMarkdown,
+  pathWorkspaceKey,
+  decayFactor,
   CATEGORIES,
   CATEGORY_LABELS,
 } = mod;
@@ -985,6 +988,129 @@ test('draft: 写 / 读 / 清（批准前对模型不可见）', () => {
   assert.equal(s.portrait(ws), null, 'draft 不影响正式画像');
   s.portraitDraftClear(ws);
   assert.equal(s.portraitDraftRead(ws), null);
+});
+
+
+/* ---------------- 质量分 / 衰减 / git 键 / 来源 ---------------- */
+
+test('quality: 自动来源的低分条目直接归档，手工写入不拦', () => {
+  const ws = makeWorkspace('v05-quality');
+  const auto = store.upsert({ title: 'x', content: '太短', source: 'auto' }, { workspace: ws });
+  assert.equal(auto.record.archiveReason, 'low_quality');
+  assert.ok(auto.record.quality < 30);
+  assert.equal(store.list({ workspace: ws, includeGlobal: false }).records.length, 0, '归档后不进列表');
+  const manual = store.upsert({ title: 'y', content: '同样很短', source: 'manual' }, { workspace: ws });
+  assert.equal(manual.record.archived, false, '手工条目不被质量闸门藏起来');
+});
+
+test('quality: 内容扎实的条目分数 >= 60 且带理由', () => {
+  const ws = makeWorkspace('v05-quality-good');
+  const r = store.upsert(
+    {
+      title: '发布纪律',
+      content: '打 tag 前必须先在本地跑完整套件，绿了再推，不然 CI 会红两次。',
+      category: 'convention',
+      tags: ['release'],
+      keywords: ['发布', 'CI'],
+      source: 'agent',
+    },
+    { workspace: ws },
+  ).record;
+  assert.ok(r.quality >= 60, 'quality=' + r.quality);
+  assert.ok(Array.isArray(r.qualityReasons));
+});
+
+test('decay: 半衰期 30 天、地板 0.5', () => {
+  const now = new Date().toISOString();
+  const thirty = new Date(Date.now() - 30 * 86400000).toISOString();
+  const year = new Date(Date.now() - 365 * 86400000).toISOString();
+  assert.equal(decayFactor(now), 1);
+  assert.ok(Math.abs(decayFactor(thirty) - 0.5) < 0.02);
+  assert.equal(decayFactor(year), 0.5);
+  assert.equal(decayFactor(null), 0.5);
+});
+
+test('rankRecords stable: 不读使用次数与当前时间，顺序确定', () => {
+  const ws = makeWorkspace('v05-stable');
+  const older = store.upsert(
+    { title: '旧约定', content: '一'.repeat(40), category: 'convention', createdAt: '2026-01-01T00:00:00.000Z' },
+    { workspace: ws },
+  ).record;
+  const newer = store.upsert(
+    { title: '新事实', content: '二'.repeat(40), category: 'fact', createdAt: '2026-02-01T00:00:00.000Z' },
+    { workspace: ws },
+  ).record;
+  store.markUsed([newer.id], { workspace: ws });
+  store.markUsed([newer.id], { workspace: ws });
+  const records = store.list({ workspace: ws, limit: 50, includeGlobal: false }).records;
+  const a = rankRecords(records, { limit: 10, stable: true });
+  const b = rankRecords(records, { limit: 10, stable: true });
+  assert.deepEqual(a.map((x) => x.record.id), b.map((x) => x.record.id));
+  assert.equal(a[0].record.id, older.id, '同分时按 createdAt 升序');
+});
+
+test('adaptive floor: 短查询只留 Top1 一半以上的命中', () => {
+  const ws = makeWorkspace('v05-floor');
+  store.upsert({ title: 'keyword 在标题', content: '无关正文' }, { workspace: ws });
+  store.upsert({ title: 'zzz plain', content: 'keyword 只在正文出现' }, { workspace: ws });
+  const hits = store.search({ workspace: ws, query: 'keyword', limit: 5 });
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].title, 'keyword 在标题');
+});
+
+test('git 键：仓库内工作区用 git- 前缀，且与路径键不同', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-git-'));
+  execFileSync('git', ['-C', repo, 'init', '-q'], { stdio: 'ignore' });
+  const key = workspaceKey(repo);
+  assert.ok(key.startsWith('git-'), key);
+  assert.notEqual(key, pathWorkspaceKey(repo));
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('迁移：旧路径键目录里的记忆会被新键读到', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-migrate-'));
+  const ws = path.join(base, 'repo');
+  fs.mkdirSync(ws, { recursive: true });
+  const legacyKey = pathWorkspaceKey(ws).slice(0, 8);
+  const legacyDir = path.join(dir, 'workspaces', slugify(ws) + '-' + legacyKey);
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(legacyDir, 'memories.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      key: legacyKey,
+      root: ws,
+      records: [{ id: 'mem_legacy', title: '旧键里的记忆', content: '还在。' }],
+    }),
+  );
+  const found = store.list({ workspace: ws, includeGlobal: false }).records;
+  assert.equal(found.length, 1);
+  assert.equal(found[0].title, '旧键里的记忆');
+  fs.rmSync(base, { recursive: true, force: true });
+});
+
+test('来源与理由：reason/evidence 跨读写保留，supersede 也带过去', () => {
+  const ws = makeWorkspace('v05-reason');
+  const first = store.upsert(
+    {
+      title: '旧说法',
+      content: '旧结论'.repeat(10),
+      source: 'agent',
+      reason: '用户当时明确要求',
+      evidence: { quote: '以后都这样' },
+    },
+    { workspace: ws },
+  ).record;
+  const got = store.get(first.id, { workspace: ws });
+  assert.equal(got.reason, '用户当时明确要求');
+  assert.equal(got.evidence.quote, '以后都这样');
+  const next = store.supersede(
+    first.id,
+    { title: '新说法', content: '新结论'.repeat(10), source: 'agent', reason: '情况变了' },
+    { workspace: ws },
+  );
+  assert.equal(next.record.reason, '情况变了');
+  assert.equal(store.get(first.id, { workspace: ws }).archived, true);
 });
 
 /* ---------------- 结果 ---------------- */

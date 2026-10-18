@@ -156,6 +156,18 @@ async function callRoute(handler, options) {
 }
 
 /**
+ * 假宿主跑一遍 `agent/pre-step`：把 claimed 交给插件的 waterfall 监听器，
+ * `next()` 返回宿主的原生 decision（claimed 即「这一 step 要进入的批次」）。
+ * 返回的就是宿主随后会落进会话、并发给模型的那份 decision。
+ */
+async function runPreStep(calls, payload) {
+  const handler = calls.events.find(([name]) => name === 'agent/pre-step')[1];
+  const claimed = payload.messages || [];
+  const next = async () => ({ kind: 'enter', messages: claimed.slice() });
+  return handler({ ...payload, messages: claimed }, next);
+}
+
+/**
  * 轮询等待一个异步条件成立。自动提炼是「发出去就不管」的后台任务，
  * 断言前必须等它自己跑完，不能靠固定 sleep 猜时间。
  */
@@ -234,7 +246,7 @@ await test('apply() 不抛错，工具 / 提示段 / 路由 / 事件都注册到
 
   assert.deepEqual(
     calls.events.map(([name]) => name).sort(),
-    ['session/created', 'session/event'],
+    ['agent/pre-step', 'session/created', 'session/event'],
   );
   assert.deepEqual(calls.injects.map((deps) => deps[0]).sort(), ['sessions', 'systemPrompt', 'webServer']);
   assert.deepEqual(calls.warn, []);
@@ -779,7 +791,7 @@ await test('索引模式简报（默认）：一行一条带 id、不展开正�
   assert.match(fullCalls.sections[0].text({ agent: { session: fullSession } }), /全文正文在这里。/);
 });
 
-await test('轮末召回：简报关掉时召回块独立工作，连续两轮不重复', async () => {
+await test('轮末召回改走尾部注入：系统提示里没有召回，agent/pre-step 每轮只注入一次', async () => {
   const { calls, tool, exec, session } = activate({ briefing: false });
   const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
   calls.events.find(([name]) => name === 'session/created')[1](session);
@@ -794,18 +806,47 @@ await test('轮末召回：简报关掉时召回块独立工作，连续两轮�
     { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
   ];
   onEvent(session, { type: 'turn/end' });
-  const briefing = calls.sections[0].text({ agent: { session } });
-  assert.match(briefing, /与当前话题相关的召回/, '应出现召回块');
-  assert.match(briefing, /构建命令是 pnpm build/);
-  assert.match(briefing, /改完客户端半要重跑/, '召回块带正文摘录');
+
+  // 系统提示段里不再有召回块——它已经挪到尾部注入。
+  const sectionText = calls.sections[0].text({ agent: { session } });
+  assert.equal(sectionText, '', '简报关着时系统提示段就是空的');
+  assert.doesNotMatch(sectionText, /与当前话题相关的召回/);
+
+  // 下一轮 step 1：召回作为一条额外的 user 消息折进进入批次（紧跟被认领的消息）。
+  const userMessage = { role: 'user', content: [{ type: 'text', text: '那构建产物在哪' }], source: { kind: 'user' } };
+  const entered = await runPreStep(calls, { agent: { session }, messages: [userMessage], turn: 2, step: 1 });
+  assert.equal(entered.messages.length, 2, '召回应作为一条额外消息进入本 step');
+  assert.equal(entered.messages[0], userMessage, '被认领的消息保持原样在前');
+  const tail = entered.messages[1];
+  assert.equal(tail.role, 'user');
+  assert.equal(tail.source.kind, 'dsh-memory');
+  assert.equal(tail.source.form, 'turn-recall');
+  assert.equal(tail.source.turn, 2);
+  const tailText = tail.content.map((block) => block.text).join('');
+  assert.match(tailText, /与当前话题相关的召回/);
+  assert.match(tailText, /只是背景参考/, '尾部注入要写清是背景参考');
+  assert.match(tailText, /构建命令是 pnpm build/);
+  assert.match(tailText, /改完客户端半要重跑/, '召回块带正文摘录');
+
+  // 同一轮的后续 step 不再重复注入。
+  const step2 = await runPreStep(calls, {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } }],
+    turn: 2,
+    step: 2,
+  });
+  assert.equal(step2.messages.length, 1, '同一轮第二次 pre-step 不该再注入');
 
   // 连续第二轮同样的话题：上轮已召回的不重复注入。
   onEvent(session, { type: 'turn/end' });
-  assert.doesNotMatch(
-    calls.sections[0].text({ agent: { session } }),
-    /与当前话题相关的召回/,
-    '连续两轮不该重复召回同一条',
-  );
+  const third = await runPreStep(calls, {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '构建又挂了' }], source: { kind: 'user' } }],
+    turn: 3,
+    step: 1,
+  });
+  assert.equal(third.messages.length, 1, '连续两轮不该重复召回同一条');
+  assert.doesNotMatch(calls.sections[0].text({ agent: { session } }), /与当前话题相关的召回/);
 });
 
 await test('captureMode=draft：自动提炼先进队列，批准后才生效', async () => {
@@ -911,7 +952,7 @@ await test('portrait 模式：简报里画像全量在前、索引清单在后',
   assert.match(briefing, /画像模式下的普通条目/, '索引清单也要在');
 });
 
-await test('portrait 冻结：同一会话内不追溯，新会话看到新版本', async () => {
+await test('portrait 快照：首次渲染为空，画像落库后的下一次渲染即生效并重新冻结', async () => {
   const { calls, route, session } = activate({ briefMode: 'portrait' });
   calls.events.find(([name]) => name === 'session/created')[1](session);
 
@@ -925,14 +966,21 @@ await test('portrait 冻结：同一会话内不追溯，新会话看到新版�
     body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '会话一之后写入。' }] }),
   });
 
+  /* 画像真的变了 → 下一次渲染重算一次（内容变了就该生效）。 */
   const again = calls.sections[0].text({ agent: { session } });
-  assert.doesNotMatch(again, /会话一之后写入。/, '同一会话不应追溯新画像');
+  assert.match(again, /会话一之后写入。/, '画像落库后下一次渲染应带上它');
 
-  const other = calls.sections[0].text({ agent: { session: { ...session, id: 'session-fresh' } } });
-  assert.match(other, /会话一之后写入。/, '新会话应看到新画像');
+  /* 重算之后再冻结：连续两次渲染逐字节相同。 */
+  assert.equal(calls.sections[0].text({ agent: { session } }), again, '重新冻结后必须逐字节稳定');
+
+  /* 新会话同样看得到。 */
+  assert.match(
+    calls.sections[0].text({ agent: { session: { ...session, id: 'session-fresh' } } }),
+    /会话一之后写入。/,
+  );
 });
 
-await test('portrait 冻结：重写不影响进行中的会话（缓存前缀稳定）', async () => {
+await test('portrait 快照：重写后重算一次，之后继续逐字节稳定（前缀缓存不受持续影响）', async () => {
   const { calls, route, session } = activate({ briefMode: 'portrait' });
   calls.events.find(([name]) => name === 'session/created')[1](session);
 
@@ -943,6 +991,7 @@ await test('portrait 冻结：重写不影响进行中的会话（缓存前缀�
   });
   const a = calls.sections[0].text({ agent: { session } });
   assert.match(a, /第一版画像。/);
+  assert.equal(calls.sections[0].text({ agent: { session } }), a, '没有任何写入时逐字节稳定');
 
   await callRoute(route, {
     method: 'POST',
@@ -950,7 +999,9 @@ await test('portrait 冻结：重写不影响进行中的会话（缓存前缀�
     body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '第二版画像。' }] }),
   });
   const b = calls.sections[0].text({ agent: { session } });
-  assert.equal(b, a, '同一会话的注入文本应逐字节稳定');
+  assert.match(b, /第二版画像。/, '重写是一次真实写入，下一次渲染应带上新版本');
+  assert.notEqual(b, a, '内容变了，文本当然会变');
+  assert.equal(calls.sections[0].text({ agent: { session } }), b, '重算之后重新冻结，后续请求逐字节相同');
 });
 
 await test('portrait API：GET 读取、save 版本递增、history 降序、坏请求 400', async () => {
@@ -1054,9 +1105,17 @@ await test('工具 journal：写一条、再读回来；空文本拒绝', async 
 });
 
 await test('记忆纪律：默认注入；discipline=false 时不出现', async () => {
+  /* 正文要够长：store 的质量闸门会归档「自动/agent 来源 + 低质量」的新条目，
+     而 tool.save 的来源就是 agent——测试数据得像一条真记忆。 */
+  const good = {
+    action: 'save',
+    title: '记纪律用的样例记忆',
+    content: '这条正文足够长，不会被质量闸门归档，也不会被当成元记忆。',
+    category: 'fact',
+  };
   const a1 = activate();
   a1.calls.events.find(([name]) => name === 'session/created')[1](a1.session);
-  await a1.tool.execute({ action: 'save', title: '任意', content: 'x', category: 'fact' }, a1.exec);
+  await a1.tool.execute(good, a1.exec);
   const withDiscipline = a1.calls.sections[0].text({ agent: { session: a1.session } });
   assert.match(withDiscipline, /记忆纪律/);
   assert.match(withDiscipline, /action=journal/);
@@ -1064,7 +1123,7 @@ await test('记忆纪律：默认注入；discipline=false 时不出现', async 
 
   const a2 = activate({ discipline: false });
   a2.calls.events.find(([name]) => name === 'session/created')[1](a2.session);
-  await a2.tool.execute({ action: 'save', title: '任意', content: 'x', category: 'fact' }, a2.exec);
+  await a2.tool.execute({ ...good, title: '记纪律用的样例记忆（二）' }, a2.exec);
   const without = a2.calls.sections[0].text({ agent: { session: a2.session } });
   assert.doesNotMatch(without, /记忆纪律/);
 });

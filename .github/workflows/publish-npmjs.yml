@@ -1,26 +1,37 @@
 name: Publish to npmjs
 
-# 发 @bangbang-03/dsh-memory 到 npmjs.com。
+# 把 @bangbang-03/dsh-memory 发到 npmjs.com（公共源）。
 #
-# 为什么单独一条：publish.yml 发的是 GitHub Packages（Actions 的 GITHUB_TOKEN
-# 天然带 packages:write），而 npmjs 需要一个一次性配置的仓库密钥——
+# 两条发布线的分工：
+#   GitHub Packages（publish.yml）—— lab 实验线 + v* 稳定线的 tarball / Release 资产；
+#   npmjs（本文件）     —— 只发 v* 稳定线，给「dsh plugin add @bangbang-03/dsh-memory」
+#                          这种标准安装方式用，也让市场目录能读到 npm 版本与下载量。
+#
+# 一次性准备（仓库管理员）：
 #   Settings → Secrets and variables → Actions → New repository secret
-#   Name: NPM_TOKEN    Secret: npmjs.com 的 Access Token（Automation 类型，需 Read and write）
-# 或命令行：gh secret set NPM_TOKEN --repo BangBang-03/dsh-memory
+#   Name: NPM_TOKEN   Secret: npmjs.com 的 Automation token（Read and write）
+#   或：gh secret set NPM_TOKEN --repo BangBang-03/dsh-memory
 #
-# 触发方式是手动 dispatch，不跟着 v* 标签：标签上已经有一条 GitHub Packages 的发布，
-# 两条同时发会互相打架（同一个版本、两个 registry，先到的那个成功）。
-# npmjs 这边按需点一次即可。
+# 没配 NPM_TOKEN 时本工作流会**明确警告并跳过发布**（不会红），
+# 测试与版本检查照跑，配好之后下一次打 v* 标签即自动发布。
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
 
+concurrency:
+  group: publish-npmjs-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # store 套件的 slugify 断言按 Windows 路径语义写，统一用 windows runner。
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +40,8 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org/
 
-      # 纯逻辑层（不依赖 DSH 运行时包），runner 上能真跑
       - name: 纯逻辑层测试
+        shell: bash
         run: |
           node test/store.test.mjs
           node test/portrait.test.mjs
@@ -38,7 +49,22 @@ jobs:
           node test/distill.test.mjs
           node test/api.test.mjs
 
+      - name: NPM_TOKEN 是否配置
+        id: guard
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::仓库没有配置 NPM_TOKEN，跳过 npmjs 发布（GitHub Packages 线不受影响）"
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 版本还没发过
+        if: steps.guard.outputs.has_token == 'true'
+        shell: bash
         run: |
           name=$(node -p "require('./package.json').name")
           ver=$(node -p "require('./package.json').version")
@@ -49,6 +75,8 @@ jobs:
           echo "$name@$ver 尚未发布，继续"
 
       - name: Publish
+        if: steps.guard.outputs.has_token == 'true'
+        shell: bash
         run: npm publish --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

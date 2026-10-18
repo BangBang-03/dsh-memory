@@ -10,7 +10,12 @@
     "long-term-memory",
     "workspace",
     "workbuddy",
-    "qoder"
+    "qoder",
+    "workspace-memory",
+    "memory-bank",
+    "memory-tool",
+    "approval-queue",
+    "portrait"
   ],
   "license": "MIT",
   "author": "BangBang-03",
@@ -63,7 +68,8 @@
     }
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0-rc.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
@@ -88,5 +94,10 @@
   "scripts": {
     "test": "node test/run-all.mjs",
     "prepublishOnly": "node test/run-all.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.5"
   }
 }

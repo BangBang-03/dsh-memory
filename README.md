@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-370%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-392%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -10,9 +10,34 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记
 提炼结果可以直接落库，也可以先进**待审队列**由你批准。全部记忆都能在 **设置 → 记忆** 里管理：
 记忆库（档案 / 列表）、时间线、健康体检、审批队列。
 
+**哪个 `dsh-memory` 是这个**：`BangBang-03/dsh-memory`（npm 名 `@bangbang-03/dsh-memory`）。市场目录里有十几个同名包，认作者与仓库。
+
+三分钟装好（DSH ≥ 0.2.0-rc.2，web / 桌面）：
+
+```powershell
+git clone https://github.com/BangBang-03/dsh-memory.git
+cd dsh-memory
+pwsh -File install.ps1 -DryRun     # 先看一遍要改什么
+pwsh -File install.ps1             # 真装
+# 重启 DSH 桌面端
+```
+
+公共 npm 源随 `v*` 标签自动发布（仓库需一次性配置 `NPM_TOKEN`，见 `.github/workflows/publish-npmjs.yml`）；配好之后也可以直接 `dsh plugin --profile web add @bangbang-03/dsh-memory`。
+
 - 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼。
 - 客户端半 `lib/client.js`：设置面板里的「记忆」页，四个 tab——**记忆库**（档案 / 列表两视图；档案有整篇文档（ZCode 式索引）/ 按标签 / 按类型 / 时间线四种排布，顶部带「刚刚记了什么」变化横幅与「下次会话将注入」预览）、**维护**（体检 + 待审队列 + 标签清理）、自动提炼、设置。
 - 纯逻辑层：`lib/store.js`（存储）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
+
+## 新增：对齐市场同类后补的六处
+
+| 机制 | 怎么用 | 默认 |
+| --- | --- | --- |
+| 质量分 + 闸门 | 每条记忆按内容算 0–100（过短 / 空标题 / meta 短语扣分，标签与关键词加分）；自动提炼与模型主动写入的**低分条目（<30）直接归档**、不进简报，卡片上标分数 | `qualityGate: true` |
+| 为什么记 / 从哪来 | `memory save/update` 新增 `reason` 与 `evidence`（quote / sessionId / turn / url）；卡片与工具输出都显示，自动提炼自动带 `evidence.sessionId` | 建议总是带 `reason` |
+| 时效衰减 | 排序乘 `0.5^(天/30)`（半衰期 30 天、地板 0.5；约定/偏好/反馈/用户四类地板 0.75，长期约定不沉底） | 固定参数 |
+| git 身份作用域 | 同一仓库的不同克隆 / worktree 共享一份记忆（`git rev-parse --git-common-dir`），探测不到才回落到路径哈希；旧键数据首次访问自动迁移 | 自动 |
+| 简报字节稳定 | 会话级冻结 + 稳定排序（不读使用次数/当前时间）；轮末召回走**尾部注入**，系统提示不再逐轮变化 | 自动 |
+| 子代理不提炼 | `origin=subagent` 的会话只召回、不写记忆，避免把派活的中间过程写成长期记忆 | `captureSubagents: false` |
 
 ## v0.3.0「百家记忆」：借鉴了谁
 
@@ -37,7 +62,7 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记
   workspaces/_global/memories.json            跨工作区共享的全局记忆
 ```
 
-工作区目录名带 8 位 hash（`workspaceKey()` 取规范化路径的哈希），所以同名目录不会互相污染。
+工作区键优先取 **git 身份**（`git rev-parse --git-common-dir` 的 realpath，同仓库不同克隆/worktree 共享），不是 git 仓库才回落到**规范化路径的哈希**——同名但不同位置的目录不会互相污染；旧路径键的数据第一次访问会自动搬到新键目录。
 记忆默认**不落在仓库里**，不随 git 外泄；需要人类可读的副本时打开 `mirror`，会在工作区写
 `<工作区>/.dsh-memory/MEMORY.md`（Markdown，可以直接提交也可以 `.gitignore` 掉）。工作区目录
 不存在时这一份会被跳过，绝不凭空造目录；把 `mirror` 关掉会把已生成的那份撤掉（空目录一并收走）。
@@ -53,6 +78,9 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记
   "tags": ["dsh", "plugin"],
   "keywords": ["插件", "安装", "bundle"],
   "related": [],
+  "reason": "用户明确要求发布前先跑测试",
+  "evidence": { "sessionId": "…", "quote": "以后发版都先跑一遍" },
+  "quality": 78,
   "supersedes": null,
   "supersededBy": null,
   "status": "active",
