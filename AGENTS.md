@@ -6,6 +6,9 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 结构一句话：宿主半 `lib/index.js`（简报注入 / `memory` 工具 / `/memory/api` 路由 / 轮末召回）+
 客户端半 `lib/client.js`（设置面板「记忆」页）+ 其余 `lib/*.js` 纯 Node 逻辑层（不 import 任何 DSH 运行时，可脱离宿主单测）。
 
+分支一句话：GitHub 默认分支是 **`lab`**（开发线，永远领先）；**`main` 只是备份线**，只在快进时动。
+推 `main` 不触发任何 CI —— `.github/workflows/publish.yml` 只监听 `lab` 与 `v*` 标签。
+
 ---
 
 ## 1. 红线
@@ -38,14 +41,14 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 
 | # | 红线 | 违反了会怎样 |
 | --- | --- | --- |
-| **P1** | 只在 `lab` 上提交；`main` 只 `merge --ff-only`，不在上面直接提交、不产生 merge commit | 快进失败 = 两线已分叉，**停下来查清**，不要用 rebase / force 掩盖 |
+| **P1** | 只在 `lab` 上提交，**`lab` 必须领先 `main`**；`main` 是备份线，只 `merge --ff-only`，不在上面直接提交、不产生 merge commit | 快进失败 = 两线已分叉，**停下来查清**，不要用 rebase / force 掩盖；`main` 落后就等于备份里没有最新代码 |
 | **P2** | 已推送的 `lab` 不 amend、不 rebase、不 force push | 远端已开 `allow_force_pushes=false`；改写历史会造平行提交，CI 与其它 clone 全对不上 |
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
 | **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 496 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
-| **P8** | 正式版只在 `main` 打 `v*` 标签，且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | `main` 是用户装 stable 的那条线，预发布号漏上去就再也升不回来 |
+| **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**，且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来 |
 
 ---
 
@@ -112,10 +115,11 @@ node tools/status.mjs                  # 两条线的头、lab/stable 通道、�
 ```
 
 ```bash
-git checkout lab                                # 平时只在这里动
-git checkout main && git merge --ff-only lab    # 提升到稳定线：唯一允许的动作
-git checkout lab                                # 提完回开发线
-git tag vX.Y.Z && git push origin main --tags   # 正式版（版本号必须先 bump）
+git push origin lab                             # 平时只推这一条：触发 CI 发 -lab.<run> 预发布
+git checkout main && git merge --ff-only lab    # 同步备份线：main 上唯一允许的动作（不发布任何东西）
+git push origin main                            # 备份上线；publish.yml 不监听 main，静默
+git checkout lab                                # 同步完回开发线
+git tag vX.Y.Z && git push origin main --tags   # 正式版：先快进 main 到 lab，再 bump 版本、打标签
 ```
 
 ---
