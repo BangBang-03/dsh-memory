@@ -590,6 +590,50 @@ test('健壮性: 原子写不留 .tmp 文件', () => {
   assert.deepEqual(strays, []);
 });
 
+test('健壮性: rename 被占用时退避重试；彻底失败也要擦掉 .tmp', () => {
+  /* 模拟 Windows 上杀软占文件：前两次 EPERM、第三次放行。 */
+  const realRename = fs.renameSync;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-rename-'));
+  const ws = path.join(dir, 'ws');
+  fs.mkdirSync(ws, { recursive: true });
+  const retrying = createMemoryStore({ dir: path.join(dir, 'retry') });
+  let calls = 0;
+  fs.renameSync = (from, to) => {
+    calls += 1;
+    if (calls <= 2) {
+      const error = new Error('EPERM: operation not permitted');
+      error.code = 'EPERM';
+      throw error;
+    }
+    return realRename(from, to);
+  };
+  try {
+    const saved = retrying.upsert({ title: '重试后落盘', content: '前两次 rename 失败，第三次成功。', category: 'fact' }, { workspace: ws });
+    assert.ok(saved.record?.id, '重试之后应当照常写入');
+    assert.ok(calls >= 3, '至少要重试两次');
+    const strays = fs.readdirSync(path.join(dir, 'retry')).filter((f) => f.endsWith('.tmp'));
+    assert.deepEqual(strays, [], '重试成功不该留下 .tmp');
+  } finally {
+    fs.renameSync = realRename;
+  }
+
+  /* 一直失败：错误照旧抛出，且不留下 .tmp。 */
+  const doomed = createMemoryStore({ dir: path.join(dir, 'doomed') });
+  fs.renameSync = () => {
+    const error = new Error('EPERM: operation not permitted');
+    error.code = 'EPERM';
+    throw error;
+  };
+  try {
+    assert.throws(() => doomed.upsert({ title: '注定失败', content: 'rename 一直 EPERM。', category: 'fact' }, { workspace: ws }));
+  } finally {
+    fs.renameSync = realRename;
+  }
+  const leftover = fs.readdirSync(path.join(dir, 'doomed')).filter((f) => f.endsWith('.tmp'));
+  assert.deepEqual(leftover, [], '彻底失败也要擦掉临时文件');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('rankRecords: 置顶优先于高相关度', () => {
   const base = { archived: false, useCount: 0, confidence: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: [] };
   const ranked = rankRecords(

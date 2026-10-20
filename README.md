@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-496%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-497%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -260,7 +260,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 496 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 497 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -541,7 +541,7 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、496 项：
+14 个套件、497 项：
 
 - `store` 122 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、

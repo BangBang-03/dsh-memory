@@ -3,7 +3,7 @@
 - 日期：2026-10-19
 - 前提：主要使用者是你自己，单机、本地优先、零外部服务；不追团队/多租户/平台化。
 - 配套：`docs/market-scan-2026-10.md`（市场与优先级）、`docs/dsh-memory-landscape-2026-10.md`（DSH 263 个插件拆解）
-- 已落地（个人版对齐完成）：BM25F 检索 + 短语 + related 一跳 + 同义词查询扩展 + 20×10 冒烟与 60 条硬评测（自测 Recall@5 1.000 / MRR@10 0.930）、画像版本 diff（逻辑 + API + 面板）、写入安全第一层（脱敏 / 隔离 / trust，可配置，面板徽标）、Dream v0、路径 JIT、会话索引与溯源（`sessions` 动作 + `GET /sessions`）、外部导入（Claude Code / Codex / Windsurf，来源打标签）、程序记忆晋升（`promote` 动作 + `POST /promote` + 面板按钮，AGENTS.md 托管块幂等）、压缩协同（compaction 摘要照录日志）、注入成本可见化（pathTail 计量进 KPI）、画像证据链（每段挂参考、缺证据标未溯源）、注入审计（每次进 prompt 的字节 + hash + 取舍）；**跨层派生链**（记忆 → 画像 → AGENTS.md 每层留源 id/版本，源失效反向标脏、沿链向上传递）与**可执行校验**（`falsifier` 字段 + 到期复审队列）也已落地；14 个套件 / 496 条断言全绿。
+- 已落地（个人版对齐完成）：BM25F 检索 + 短语 + related 一跳 + 同义词查询扩展 + 20×10 冒烟与 60 条硬评测（自测 Recall@5 1.000 / MRR@10 0.930）、画像版本 diff（逻辑 + API + 面板）、写入安全第一层（脱敏 / 隔离 / trust，可配置，面板徽标）、Dream v0、路径 JIT、会话索引与溯源（`sessions` 动作 + `GET /sessions`）、外部导入（Claude Code / Codex / Windsurf，来源打标签）、程序记忆晋升（`promote` 动作 + `POST /promote` + 面板按钮，AGENTS.md 托管块幂等）、压缩协同（compaction 摘要照录日志）、注入成本可见化（pathTail 计量进 KPI）、画像证据链（每段挂参考、缺证据标未溯源）、注入审计（每次进 prompt 的字节 + hash + 取舍）；**跨层派生链**（记忆 → 画像 → AGENTS.md 每层留源 id/版本，源失效反向标脏、沿链向上传递）与**可执行校验**（`falsifier` 字段 + 到期复审队列）也已落地；14 个套件 / 497 条断言全绿。
 
 ---
 
@@ -240,7 +240,7 @@
 | `test/derivation.test.mjs` | 14 项：指纹与 id、画像层源失效（归档 / 改写 / 删除）、AGENTS.md 派生失效、画像段改写 → 下游失效、链式传递、幂等、体检暴露；旧数据补排期从今天起算 |
 | `test/verification.test.mjs` | 12 项：falsifier 显式 / 提取 / 清除、默认与可配置排期、复审队列、复审推后、体检暴露；旧数据补排期从今天起算 |
 | `lib/index.js` | 修正全局画像重写的作用域：`list({workspace:'', includeGlobal:false})` 此前返回 0 条，全局条目一条都进不了提示词；改为 `includeGlobal: scope === 'global'` |
-| `test/run-all.mjs` | 新增 `derivation` / `verification` 套件；14 个套件 / 496 条断言 |
+| `test/run-all.mjs` | 新增 `derivation` / `verification` 套件；14 个套件 / 497 条断言 |
 
 ### 自查暴露的既有边界（不是这批改出来的，但会影响这两个新层）
 
