@@ -48,6 +48,29 @@ check('Config 解析空对象得到默认值', () => {
   assert.equal(value.falsifierReviewDays, 90);
   assert.equal(value.sectionOrder, 550);
   assert.equal(value.directory, '');
+  assert.equal(value.autoInject, true, '注入总闸默认开');
+  assert.deepEqual(value.disabledWorkspaces, [], '停用名单默认空');
+});
+
+check('Config 接受停用工作区名单', () => {
+  const value = mod.Config({ disabledWorkspaces: ['C:/tmp/one-off', '/home/u/scratch'] });
+  assert.deepEqual(value.disabledWorkspaces, ['C:/tmp/one-off', '/home/u/scratch']);
+});
+
+check('续跑判定：没有新信息的确认句跳过召回，短指令照常召回', () => {
+  const cont = mod.isContinuation;
+  for (const text of ['继续', '好的，那就继续吧', '嗯', 'ok', '下一步', '谢谢！', '接着往下']) {
+    assert.equal(cont(text), true, `应判为续跑：${text}`);
+  }
+  for (const text of [
+    '为什么构建这么慢',
+    '好的，那就按 B 方案做',
+    '帮我看看 store.js 里怎么写的',
+    '继续把画像重写做完',
+    '是不是该换成 BM25',
+  ]) {
+    assert.equal(cont(text), false, `不该判为续跑：${text}`);
+  }
 });
 
 check('Config 接受覆盖值', () => {

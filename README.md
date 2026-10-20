@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-493%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-496%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -49,7 +49,7 @@ pwsh -File install.ps1             # 真装
 
 | 来源 | 机制 | 本插件的落点 |
 | --- | --- | --- |
-| ZCode / Qoder | `MEMORY.md` 一行一条索引常驻，正文按需读取 | `briefMode: index`（默认）——简报只注入「标题 + 标签 + id」，同样字数预算下能装约 3 倍的条目，注入量降 60–70%；模型用 `memory get/search` 按需取全文 |
+| ZCode / Qoder | `MEMORY.md` 一行一条索引常驻，正文按需读取 | `briefMode: index`（默认）——简报只注入「日期 + 标题 + 标签 + id」，同样字数预算下能装约 3 倍的条目，注入量降 60–70%；模型用 `memory get/search` 按需取全文 |
 | ZCode | 每轮后台召回相关记忆（已召回快照防重复） | `turnRecall`：轮次结束后拿当轮用户消息做本地检索，命中的记忆下一轮随简报注入「相关召回」块；连续两轮不重复，纯本地打分零模型开销 |
 | ZCode | 类型体系（feedback/user）+ Why/How to apply | 新增 `feedback`（协作纠正/肯定，提炼时按「规则 + Why + How to apply」组织正文）与 `user`（用户画像，强制全局）类别 |
 | ZCode | `[[related]]` 双链（悬空允许）、验证式过期 | 记录可带 `related` 关联；简报页脚固定提示「引用记忆里的路径/函数前先验证还存在」；体检列出待验证项 |
@@ -146,7 +146,9 @@ JWT / 私钥 / `Bearer` / `password: …` 赋值 / 带凭据的数据库 URI）�
 
 1. **会话开始注入索引**（`briefing`）。系统提示里多一段 `dsh-memory:workspace-briefing`
    （order 550，夹在 PLAN_POLICY 500 与 TEAM_POLICY 600 之间）。默认 `briefMode: index`——
-   一行一条「📌 [类别] 标题 #标签 (id)」，正文不展开；切 `full` 则回到标题+正文摘录的旧形态。
+   一行一条「📌 2026-10-20 [类别] 标题 #标签 (id)」，正文不展开；切 `full` 则回到标题+正文摘录的旧形态。
+   日期戳取记录的 `createdAt`（不可变），让模型在注入时自己判断新旧；**不用 `updatedAt`**——那个会被
+   `markUsed` 刷，一进简报，同一会话的注入字节就逐轮变化，前缀缓存整段作废。
    两种模式都受 `briefingLimit` / `briefingMaxChars` 双重限制，页脚写明「正文按需取 + 引用前先验证」。
    工作区从 `context.agent.session.header.cwd` 现取，切换会话即切换记忆。
 2. **`memory` 工具**。模型可以 `save` / `search` / `sessions` / `promote` / `list` / `get` / `update` / `forget` / `stats`。
@@ -168,6 +170,13 @@ JWT / 私钥 / `Bearer` / `password: …` 赋值 / 带凭据的数据库 URI）�
 
    > **压缩协同**（`compactionSalvage`，默认开）：宿主压缩上下文（`compaction/summary` / `compaction/prune`）时，
    > 把压缩摘要照录进当天工作日志——长会话被压缩，结论也不丢（auto-memory 交接账本的本地轻量版）。
+6. **门控：什么时候不记忆**（`autoInject` + `disabledWorkspaces`）。`autoInject: false` 是注入总闸，
+   简报 / 轮末召回 / 路径召回一起停，`memory` 工具照常读写——做敏感或一次性任务时用「只用工具」档。
+   `disabledWorkspaces` 按**归一后的绝对路径**精确匹配，命中的工作区不注入、也不自动提炼；
+   手动工具写入仍放行（显式意图不该被静默拒绝）。
+   两道闸都在**入口**拦：简报返回空正文（与「一条记忆都没有」同一条路径），召回连缓冲区都不建。
+7. **轮末召回的问题闸**：当轮用户消息若是纯续跑（「继续」「好的，那就继续吧」「下一步」），不再为它跑检索。
+   判据是纯本地的——归一后剥掉续跑词与虚词，剩下的实义字符 ≤ 2 才算续跑；长句和带内容的短指令照常召回。
 
 ## 安装
 
@@ -251,7 +260,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 493 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 496 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -394,7 +403,9 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 总开关 |
+| `autoInject` | `true` | 注入总闸：关掉后简报 / 轮末召回 / 路径召回都不再进上下文，`memory` 工具照常读写（「只用工具」档） |
 | `directory` | `""` | 数据库位置，空 = `~/.dsh/storages/dsh-memory` |
+| `disabledWorkspaces` | `[]` | 停用自动记忆的工作区（绝对路径，归一后精确匹配）：不注入、不自动提炼；工具仍可手动读写。事故排查时也用它把一次性工作区摘出去 |
 | `mirror` | `true` | 在工作区写 `.dsh-memory/MEMORY.md` |
 | `briefing` | `true` | 会话开始注入记忆简报 |
 | `briefMode` | `"index"` | `index` 一行一条索引（省 token）；`full` 标题+正文摘录 |
@@ -530,7 +541,7 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、493 项：
+14 个套件、496 项：
 
 - `store` 122 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、

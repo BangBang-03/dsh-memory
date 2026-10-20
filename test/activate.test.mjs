@@ -804,6 +804,14 @@ await test('索引模式简报（默认）：一行一条带 id、不展开正�
   );
   const briefing = calls.sections[0].text({ agent: { session } });
   assert.match(briefing, /索引模式的记忆/, '索引应有标题');
+  // 日期戳：供模型在注入时判断新旧。必须来自 createdAt，不能是 updatedAt（后者会被 markUsed 刷）。
+  const line = briefing.split('\n').find((item) => item.includes('索引模式的记忆')) || '';
+  assert.match(line, /^- (?:\S+ )?\d{4}-\d{2}-\d{2} \[/, '索引行应以日期戳开头');
+  const stamp = /\d{4}-\d{2}-\d{2}/.exec(line)?.[0] || '';
+  const localDay = (date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const expectedDays = new Set([localDay(new Date()), localDay(new Date(Date.now() - 86400000))]);
+  assert.ok(expectedDays.has(stamp), `日期戳应是创建当天（实际 ${stamp}）`);
   assert.match(briefing, /`mem_[A-Za-z0-9_]+`/, '索引应带 id 供按需取正文');
   assert.doesNotMatch(briefing, /这条正文不该出现在索引简报里/, '索引模式不该展开正文');
   assert.match(briefing, /上面是索引/);
@@ -1009,6 +1017,58 @@ await test('轮末召回改走尾部注入：系统提示里没有召回，agent
   });
   assert.equal(third.messages.length, 1, '连续两轮不该重复召回同一条');
   assert.doesNotMatch(calls.sections[0].text({ agent: { session } }), /与当前话题相关的召回/);
+});
+
+await test('门控：autoInject=false 只停注入、工具照常；停用工作区连召回都不排', async () => {
+  /* 1) 总闸关掉：简报空，但 memory 工具照常读写（「只用工具」档）。 */
+  const off = activate({ autoInject: false });
+  off.calls.events.find(([name]) => name === 'session/created')[1](off.session);
+  await off.tool.execute(
+    { action: 'save', title: '总闸关掉仍可写', content: '注入关了，工具照常读写。', category: 'fact' },
+    off.exec,
+  );
+  assert.equal(
+    off.calls.sections[0].text({ agent: { session: off.session } }),
+    '',
+    'autoInject=false 时不注入任何正文（不是注一段空的）',
+  );
+  const found = await off.tool.execute({ action: 'search', query: '总闸关掉仍可写' }, off.exec);
+  assert.equal(found.count, 1, '注入关掉不影响工具读写');
+
+  /* 2) 停用工作区：简报空 + 轮末不排召回 + 工具仍可手动检索。 */
+  const blocked = activate({ disabledWorkspaces: [workspace] });
+  const onEvent = blocked.calls.events.find(([name]) => name === 'session/event')[1];
+  blocked.calls.events.find(([name]) => name === 'session/created')[1](blocked.session);
+  await blocked.tool.execute(
+    {
+      action: 'save',
+      title: '停用工作区里的构建约定',
+      content: '构建命令是 pnpm build；这个工作区在停用名单里，不该被自动注入。',
+      category: 'convention',
+    },
+    blocked.exec,
+  );
+  assert.equal(
+    blocked.calls.sections[0].text({ agent: { session: blocked.session } }),
+    '',
+    '停用工作区不注入简报',
+  );
+
+  blocked.session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '帮我跑一下构建命令，然后告诉我结果' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+  ];
+  onEvent(blocked.session, { type: 'turn/end' });
+  const entered = await runPreStep(blocked.calls, {
+    agent: { session: blocked.session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '那构建产物在哪' }], source: { kind: 'user' } }],
+    turn: 2,
+    step: 1,
+  });
+  assert.equal(entered.messages.length, 1, '停用工作区连轮末召回都不排');
+
+  const manual = await blocked.tool.execute({ action: 'search', query: '构建约定' }, blocked.exec);
+  assert.equal(manual.count, 1, '停用只挡自动路径，手动检索照常');
 });
 
 await test('轮末召回：排期不等于曝光，真正注入时才记 exposedCount', async () => {
