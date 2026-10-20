@@ -733,6 +733,90 @@ await test('POST /promote：写进 AGENTS.md；global 与未知 id 报错', asyn
   assert.equal(missing.body.error, 'not_found');
 });
 
+/* ---------------- 派生链与复审 ---------------- */
+
+await test('GET /derivations：返回派生条目与汇总', async () => {
+  const ws = path.join(tmp, 'ws-derivation');
+  fs.mkdirSync(ws, { recursive: true });
+  const source = store.upsert(
+    { title: '派生源条目', content: '派生源正文', category: 'convention' },
+    { workspace: ws },
+  ).record;
+  store.savePortrait(ws, {
+    sections: [{ key: 'preference', text: '派生段落' }],
+    evidence: { preference: [source.id] },
+  });
+
+  const fresh = await call('GET', '/derivations', { query: { workspace: ws } });
+  assert.equal(fresh.status, 200);
+  assert.equal(fresh.body.entries.length, 1);
+  assert.equal(fresh.body.entries[0].layer, 'portrait');
+  assert.equal(fresh.body.entries[0].state, 'fresh');
+  assert.equal(fresh.body.summary.dirty, 0);
+
+  store.update(source.id, { archived: true }, { workspace: ws });
+  const dirty = await call('GET', '/derivations', { query: { workspace: ws } });
+  assert.equal(dirty.body.entries[0].state, 'dirty');
+  assert.equal(dirty.body.summary.dirty, 1);
+  assert.match(dirty.body.entries[0].reason, /已归档/);
+});
+
+await test('GET /reviews 与 POST /review：到期项与复审', async () => {
+  const ws = path.join(tmp, 'ws-review');
+  fs.mkdirSync(ws, { recursive: true });
+  const rec = store.upsert(
+    {
+      title: '到期条目',
+      content: '到期正文',
+      category: 'decision',
+      falsifier: '当接口变了',
+      reviewAt: new Date(Date.now() - 86400000).toISOString(),
+    },
+    { workspace: ws },
+  ).record;
+
+  const list = await call('GET', '/reviews', { query: { workspace: ws } });
+  assert.equal(list.status, 200);
+  assert.equal(list.body.dueCount, 1);
+  assert.equal(list.body.due[0].id, rec.id);
+  assert.equal(list.body.due[0].falsifier, '当接口变了');
+
+  const marked = await call('POST', '/review', { body: { workspace: ws, id: rec.id } });
+  assert.equal(marked.status, 200);
+  assert.ok(marked.body.record.reviewedAt, '应写上次复审时间');
+
+  const after = await call('GET', '/reviews', { query: { workspace: ws } });
+  assert.equal(after.body.dueCount, 0, '复审后不应再到期');
+
+  const missing = await call('POST', '/review', { body: { workspace: ws, id: 'mem_nope' } });
+  assert.equal(missing.status, 404);
+  assert.equal(missing.body.error, 'not_found');
+});
+
+await test('POST /promote from=portrait：把画像段写进 AGENTS.md', async () => {
+  const ws = path.join(tmp, 'ws-promote-portrait');
+  fs.mkdirSync(ws, { recursive: true });
+  store.savePortrait(ws, {
+    sections: [{ key: 'preference', text: '画像里的协作约定' }],
+  });
+
+  const res = await call('POST', '/promote', {
+    body: { workspace: ws, from: 'portrait', section: 'preference' },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.lines.length, 1);
+  const fsMod = await import('node:fs');
+  assert.match(fsMod.readFileSync(res.body.file, 'utf8'), /画像里的协作约定/);
+
+  const emptyWs = path.join(tmp, 'ws-empty');
+  fs.mkdirSync(emptyWs, { recursive: true });
+  const noPortrait = await call('POST', '/promote', {
+    body: { workspace: emptyWs, from: 'portrait' },
+  });
+  assert.equal(noPortrait.status, 404);
+  assert.equal(noPortrait.body.error, 'no_portrait');
+});
+
 /* ---------------- 画像 2.0：版本 diff ---------------- */
 
 await test('GET /portrait/diff：上一版到当前版的逐段 diff', async () => {

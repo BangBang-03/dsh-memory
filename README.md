@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-455%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-490%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -25,10 +25,10 @@ pwsh -File install.ps1             # 真装
 公共 npm 源随 `v*` 标签自动发布（仓库需一次性配置 `NPM_TOKEN`，见 `.github/workflows/publish-npmjs.yml`）；配好之后也可以直接 `dsh plugin --profile web add @bangbang-03/dsh-memory`。
 
 - 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼。
-- 客户端半 `lib/client.js`：设置面板里的「记忆」页，四个 tab——**记忆库**（档案 / 列表两视图；档案有整篇文档（ZCode 式索引）/ 按标签 / 按类型 / 时间线四种排布，顶部带「刚刚记了什么」变化横幅与「下次会话将注入」预览）、**维护**（体检 + 待审队列 + 标签清理）、自动提炼、设置。
+- 客户端半 `lib/client.js`：设置面板里的「记忆」页，四个 tab——**记忆库**（档案 / 列表两视图；档案有整篇文档（ZCode 式索引）/ 按标签 / 按类型 / 时间线四种排布，顶部带「刚刚记了什么」变化横幅与「下次会话将注入」预览）、**维护**（体检 + 待审队列 + 派生链 + 注入审计 + 复审队列 + 标签清理）、自动提炼、设置。
 - 纯逻辑层：`lib/store.js`（存储）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
 
-## 新增：对齐市场同类后补的十处
+## 新增：对齐市场同类后补的十二处
 
 | 机制 | 怎么用 | 默认 |
 | --- | --- | --- |
@@ -42,6 +42,8 @@ pwsh -File install.ps1             # 真装
 | 同义词查询扩展 | 查询侧按保守同义词组扩展（发版/发布/上线、检查/校验、压缩/裁剪…），接住「换了说法」的查询；索引仍用原文，不改写入内容 | 自动 |
 | 画像证据链 | 重写画像时要求模型给每段挂参考（`mem_…` / `journal:YYYY-MM-DD`），落库后每段显示证据标签；没有证据的段标「未溯源」；手工改过正文的段自动清空证据 | 自动 |
 | 注入审计 | 每次真正进 prompt 的内容都留一份：正文、sha256 前 16 位、带了哪些记忆 id、谁被预算挤掉；`GET /injections` 可查，维护页有「注入审计」卡 | 自动 |
+| 跨层派生链 | 记忆 → 画像 → AGENTS.md 每一层都记下它是从哪些源、哪个版本抄来的（`derivations.json`）；源被删 / 被归档 / 被取代 / 被改写时，**这层派生自动标脏**并沿链向上传递；`GET /derivations` 可查，维护页有「派生链」卡 | 自动 |
+| 失效条件与复审 | 记忆可写 `falsifier`（什么情况出现就说明它不再成立，正文里的「失效条件：…」也会被识别）；带失效条件的记忆自动排期复审，到期进复审队列；`GET /reviews` 与 `action=review` 处理 | `falsifierReviewDays: 90` |
 
 ## v0.3.0「百家记忆」：借鉴了谁
 
@@ -63,6 +65,9 @@ pwsh -File install.ps1             # 真装
   settings.json                  面板里改的设置（cordis config 只是初值）
   workspaces/<目录名>-<hash>/memories.json    每个工作区一个库
   workspaces/<目录名>-<hash>/MEMORY.md        这个库的人读旁车（始终写）
+  workspaces/<目录名>-<hash>/portrait.json    工作区画像（版本 + 证据）
+  workspaces/<目录名>-<hash>/derivations.json 跨层派生链（画像 / AGENTS.md 的源快照）
+  workspaces/<目录名>-<hash>/journal/         每天一个只追加的工作日志
   workspaces/_global/memories.json            跨工作区共享的全局记忆
 ```
 
@@ -85,6 +90,9 @@ pwsh -File install.ps1             # 真装
   "reason": "用户明确要求发布前先跑测试",
   "evidence": { "sessionId": "…", "quote": "以后发版都先跑一遍" },
   "quality": 78,
+  "falsifier": "如果 dsh plugin add 不再读 dsh.profile.bundles",
+  "reviewAt": "2027-01-08T…",
+  "reviewedAt": null,
   "supersedes": null,
   "supersededBy": null,
   "status": "active",
@@ -113,6 +121,12 @@ pwsh -File install.ps1             # 真装
 只有 `memory get` 记 `openedCount`，答案里显式写 `#id` 记 `citedCount`。排序只读
 `openedCount + citedCount`（汇总在 `useCount`），所以一条记忆不会因为「被反复注入」而自动变重要；
 体检与 Dream 会单独列出「曝光 ≥3 次但从未打开/引用」的条目。
+
+失效条件与复审：一条记忆可以写 `falsifier`（什么情况出现就说明它不再成立；正文里写
+「失效条件：…」也会被识别成这个字段）。带失效条件的记忆自动排期复审（默认 90 天，
+`falsifierReviewDays` 可调），到期进复审队列（维护页「复审队列」卡，或 `action=review`），
+确认还成立就一键推后一个周期。跨层派生链另存一份：画像与 AGENTS.md 各自记下是从哪些源、
+哪个版本抄来的，源被删 / 被归档 / 被取代 / 被改写时这层派生就标脏（`derivations.json`）。
 
 类别：`fact` 事实、`preference` 偏好、`decision` 决策、`convention` 约定、`component` 组件、
 `task` 待办、`note` 笔记、`feedback` 反馈（协作纠正/肯定）、`user` 用户画像（强制全局，跟着人走）。
@@ -237,7 +251,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：12 个套件 455 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 490 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -283,12 +297,12 @@ pwsh -File install.ps1 -FromRelease -Channel stable       # stable（稳定线�
 # 方式二：走 GitHub Packages 的 npm registry（需要带 read:packages 的 PAT）
 pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory@lab" `
   -Registry https://npm.pkg.github.com -NpmToken $env:NPM_TOKEN
-#   版本位可以是 dist-tag（latest / lab）或具体版本号（如 @0.5.1）
+#   版本位可以是 dist-tag（latest / lab）或具体版本号（如 @0.6.0）
 ```
 
 `-FromRelease` / `-FromNpm` 都会把包的 tarball 拉下来解包到 `~/.dsh/plugins/dsh-memory`，然后对它执行与
 本地安装相同的三步（垫片 / profile 清单 / junction）。**更新就是重跑同一条命令**：脚本会整体替换 plugins
-里的旧版本，junction 与 profile 引用的目录名不变，DSH 侧不需要任何动作；想锁版本就在包名后带 `@0.5.1`。
+里的旧版本，junction 与 profile 引用的目录名不变，DSH 侧不需要任何动作；想锁版本就在包名后带 `@0.6.0`。
 `-DryRun` 只打印计划，不联网不落盘。替换旧版本时脚本会先摘掉目录内的垫片 junction 再删
 （PowerShell 5.1 的 `Remove-Item -Recurse` 会跟进 junction 删到共享模块里，这一步是防它的）。
 
@@ -439,19 +453,29 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/dream` | Dream 一键整理：合并重复簇 + 报告过期未用 + 画像重写进待审（只手动触发） |
 | GET | `/sessions` | 会话检索（溯源）：按词重叠搜回当轮用户发言原文 + sessionId/turn |
 | GET | `/injections` | 注入审计：最近真正进 prompt 的内容（正文预览 + sha256 前 16 位 + id 列表 + 被挤掉的条目；`full=1` 给原文，`kind` 可过滤） |
-| POST | `/promote` | 程序记忆晋升：把一条记忆写进工作区 AGENTS.md 托管块（幂等） |
+| GET | `/derivations` | 跨层派生链：每层派生了什么、源现在还成不成立（`state` 为 `fresh` / `dirty`，带失效原因） |
+| GET | `/reviews` | 复审队列：带失效条件、到期该复查的记忆（`due` / `soon`） |
+| POST | `/review` | 复审一条：记「看过，还成立」，到期时间推后一个周期 |
+| POST | `/promote` | 程序记忆晋升：把一条记忆写进工作区 AGENTS.md 托管块（幂等）；带 `from=portrait` 则改写画像的某一段 |
 | POST | `/distill` | 只返回候选，不落库 |
 | POST | `/security/scan` | 写入安全：扫描任意文本的密钥与注入模式，只报告不落库 |
 | GET | `/ping` | 存活探测 |
 
-## 维护：体检 / 待审 / 标签清理
+## 维护：体检 / 派生链 / 复审 / 待审 / 标签清理
 
 时间线已并入记忆库的排布下拉；原「健康」「审批」两个 tab 合成一个**维护** tab：
 
 - **注入审计**：这次真正进 prompt 的字节、hash、带了哪些记忆、谁被预算挤掉（简报 / 尾部召回 / 路径召回分开记，append-only）。
+- **派生链**：记忆 → 画像 → AGENTS.md 每一层是从哪些源抄来的、源现在还成不成立。
+  源被删 / 被归档 / 被取代 / 被改写，这层就显示「已失效」并给出原因；上游失效会沿链传下去
+  （画像的证据没了，从它抄进 AGENTS.md 的那几行也跟着标脏）。只报告，不自动改任何东西。
+- **复审队列**：带 `falsifier`（失效条件）的记忆到期后进这里，一行显示「到期时间 + 失效条件」，
+  确认还成立就点「已复审」，到期时间按周期推后（默认 90 天，`falsifierReviewDays` 可调）。
 - **体检**：KPI 卡（总数、利用率、待审草稿、最近一次简报注入的字符数与 token 粗估）+
   问题清单——重复簇（一键合并，源条目归档可恢复）、过期未用（一键归档）、
   断链（`related`/`supersedes` 指向不存在的记录，一键摘除）。
+  `GET /health` 同时返回 `derivations`（失效的派生条目）与 `reviewDue`（到期未复审的条目），
+  这两类在上面的派生链 / 复审队列两张卡里各自处理。
 - **待审队列**：`captureMode: draft` 时自动提炼的候选先进这里；每张草稿卡可**批准**、
   **编辑后批准**（编辑字段随批准请求一起提交）、**拒绝**（默认删除，草稿从未生效）。
   草稿不进简报、不进检索、不进镜像——批准之前对模型完全不可见。tab 上带数量徽标。
@@ -461,7 +485,8 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 - **Dream**：一键半自动整理（对标 meow / mneme / prime 的 dream，但只手动触发）——
   合并重复簇（原条目归档可恢复）、报告过期未用（只报告不归档，由人决定）、
   把画像重写送进待审。没有后台常驻任务；报告一行显示「合并几簇 / 过期几条 / 画像是否进待审」。
-  记录卡与时间线带写入安全徽标：`可疑`（taint）/ `已脱敏`（redactions）/ `外部来源`（trust=external）。
+  记录卡与时间线带写入安全徽标：`可疑`（taint）/ `已脱敏`（redactions）/ `外部来源`（trust=external），
+  以及复审徽标：`有失效条件` / `待复审`（到期未复查）。
 
 ## 导入本机既有的记忆
 
@@ -498,7 +523,7 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-12 个套件、455 项：
+14 个套件、490 项：
 
 - `store` 122 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
@@ -513,6 +538,11 @@ npm test          # 或 node test/run-all.mjs
 - `security` 9 项 —— 写入安全：100 条密钥样本全部脱敏（原文零泄漏）、20 条注入样本全部命中、
   20 条正常文本零误报、trust 分级（manual→user，模型不能自封）、非 user 来源的注入内容自动隔离成草稿、
   批准后不被反复打回。
+- `derivation` 14 项 —— 跨层派生链：画像层记下它引用了哪些记忆、源被归档 / 被改写 / 被删时标脏；
+  记忆晋升进 AGENTS.md 后源改写即标脏；画像段改写 → 从它派生的 AGENTS.md 跟着失效（链式传递）；
+  重复晋升幂等；体检列出失效的派生条目。
+- `verification` 12 项 —— 可执行校验：显式 `falsifier` 与正文里「失效条件：…」的提取、显式空串清除、
+  默认 90 天排期与可配置 TTL、复审队列（到期 / 即将到期）、复审后推后到期时间、体检列出到期项。
 - `portrait` 39 项 —— 画像层：段落模型与预算截断、Markdown 渲染与解析、重写输入的拼装、
   模型输出的容错解析、工作区 / 全局两份注入渲染；v0.6：版本 diff（行级 LCS、+/- 渲染、一行摘要）。
 - `markdown` 41 项 —— WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、格式识别、粗体子标题
@@ -521,11 +551,11 @@ npm test          # 或 node test/run-all.mjs
   Claude 的索引页剔除）。
 - `distill` 41 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别；v0.3.0：
   keywords/supersedes 解析、user 类别强制 global、提示词 v2 指引、existingRecords 带 id。
-- `api` 66 项 —— 26 个端点、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
+- `api` 69 项 —— 38 个端点、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
   /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
   /save 带 supersedes 与 /supersede/rollback；v0.6：`GET /portrait/diff`（上一版 → 当前版的逐段 diff）。
 - `host` 10 项 —— 导出形状、Config 默认值与越界校验。
-- `activate` 41 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
+- `activate` 44 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
   工具 save/search/get/forget、全文简报装不下时明说「只列了 N / M 条」、`/memory/api/*` 路由真的应答
   且守好 403/404、手动提炼端到端、面板保存落到工作区镜像、既有记忆扫描导入、数据目录不可用不炸外壳；
   v0.3.0：索引简报（带 id 不展开正文 + full 模式对照）、轮末召回（召回块出现、连续两轮不重复）、
@@ -534,7 +564,7 @@ npm test          # 或 node test/run-all.mjs
   journal API（写 / 读 / 日期校验）、画像重写（draft 进待审、direct 直接落库）、提示段里的写入纪律。
 - `briefing-stability` 14 项 —— 会话级冻结快照、确定性排序、轮末召回的尾部注入与去重；
   改检索算法时用它守住「系统提示字节稳定」。
-- `client` 42 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
+- `client` 45 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
   接到真实 `store` + `api` 上驱动交互（列表 / 搜索 / 新建 / 删除 / 置顶 / 中英文切换 / 后端报错）；
   档案视图的分区与两种排布（整篇文档 / 按标签分组 / 按类型分组、分区与分组折叠、组头「整合」、
   整篇编辑、整理永远按标签算、开关即时落库；v0.3.1：档案与记忆空间合并成同一个视图）；v0.3.3：变化横幅与注入预览（/briefing-preview 被调用、✓ 简报标记、横幅展开）、时间线并入档案排布

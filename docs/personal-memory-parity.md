@@ -3,7 +3,7 @@
 - 日期：2026-10-19
 - 前提：主要使用者是你自己，单机、本地优先、零外部服务；不追团队/多租户/平台化。
 - 配套：`docs/market-scan-2026-10.md`（市场与优先级）、`docs/dsh-memory-landscape-2026-10.md`（DSH 263 个插件拆解）
-- 已落地（个人版对齐完成）：BM25F 检索 + 短语 + related 一跳 + 同义词查询扩展 + 20×10 冒烟与 60 条硬评测（自测 Recall@5 1.000 / MRR@10 0.930）、画像版本 diff（逻辑 + API + 面板）、写入安全第一层（脱敏 / 隔离 / trust，可配置，面板徽标）、Dream v0、路径 JIT、会话索引与溯源（`sessions` 动作 + `GET /sessions`）、外部导入（Claude Code / Codex / Windsurf，来源打标签）、程序记忆晋升（`promote` 动作 + `POST /promote` + 面板按钮，AGENTS.md 托管块幂等）、压缩协同（compaction 摘要照录日志）、注入成本可见化（pathTail 计量进 KPI）、画像证据链（每段挂参考、缺证据标未溯源）、注入审计（每次进 prompt 的字节 + hash + 取舍）；12 个套件 / 455 条断言全绿。
+- 已落地（个人版对齐完成）：BM25F 检索 + 短语 + related 一跳 + 同义词查询扩展 + 20×10 冒烟与 60 条硬评测（自测 Recall@5 1.000 / MRR@10 0.930）、画像版本 diff（逻辑 + API + 面板）、写入安全第一层（脱敏 / 隔离 / trust，可配置，面板徽标）、Dream v0、路径 JIT、会话索引与溯源（`sessions` 动作 + `GET /sessions`）、外部导入（Claude Code / Codex / Windsurf，来源打标签）、程序记忆晋升（`promote` 动作 + `POST /promote` + 面板按钮，AGENTS.md 托管块幂等）、压缩协同（compaction 摘要照录日志）、注入成本可见化（pathTail 计量进 KPI）、画像证据链（每段挂参考、缺证据标未溯源）、注入审计（每次进 prompt 的字节 + hash + 取舍）；**跨层派生链**（记忆 → 画像 → AGENTS.md 每层留源 id/版本，源失效反向标脏、沿链向上传递）与**可执行校验**（`falsifier` 字段 + 到期复审队列）也已落地；14 个套件 / 490 条断言全绿。
 
 ---
 
@@ -57,6 +57,8 @@
 | 注入可见化 / 成本 | prime / dsh-context / cost-meter | P1 | 简报 KPI 显示最近路径注入条数与 token 粗估；`/state` 带 `pathTail` 计量 | 已落地（v0） |
 | 画像证据链 | prime L3 / memento | P0 | 重写时要求每段挂 `mem_…` / `journal:YYYY-MM-DD`；落库 `evidence` + `sectionMeta`；手工改动段自动清空证据 | 已落地 |
 | 注入审计 | 无直接同类（自提护城河） | P0 | 每次进 prompt 记正文 + sha256 前 16 位 + id 列表 + 被预算挤掉的条目；`GET /injections` + 维护页卡片 | 已落地 |
+| 跨层派生链 | Veyra（只做 code→memory）/ akasha（修订链 + 复审留痕） | P0 | `lib/derivation.js` 纯函数 + `derivations.json`：每层记下源 id 与内容指纹；源被删 / 归档 / 取代 / 改写时该层标脏，并沿链向上传递；`GET /derivations` + 维护页卡片 + 体检 `derivations` | 已落地 |
+| 可执行校验（falsifier + 到期复审） | akasha-book（trust×age 复审到期） | P0 | 记忆带 `falsifier`（含正文「失效条件：…」提取）+ `reviewAt`；默认 90 天 TTL（`falsifierReviewDays` 可调）；到期进复审队列，`GET /reviews` / `POST /review` / `action=review` + 维护页卡片 + 体检 `reviewDue` | 已落地 |
 | 向量召回 | prime / mneme | P2 | 可选本地 embedding，默认关闭 | 不做（暂缓） |
 | 知识图谱 | StrataGate / mneme | P2 | 实体/关系；先看 related 一跳是否够 | 不做（暂缓） |
 
@@ -225,6 +227,19 @@
 | `test/api.test.mjs` | +4 项：`/portrait/diff` ×2、`/security/scan` ×2 |
 | `test/client.test.mjs` | +1 项：diff 入口调用与渲染 |
 | `test/run-all.mjs` | 新增 `retrieval` / `security` 套件；12 个套件 / 419 条断言 |
+
+### 第二批护城河：跨层派生链 + 可执行校验（2026-10-20）
+
+| 文件 | 改动 |
+| --- | --- |
+| `lib/derivation.js` | 纯函数：内容指纹、稳定派生 id、`memorySource` / `portraitSource`、`evaluateEntry` / `evaluateEntries`（含链式传递）、`derivationSummary` |
+| `lib/store.js` | `derivations.json` 读写；`derivationList` / `derivationSummary`（状态实时对账，不靠事件）；`savePortrait` 记画像层派生；`promoteToAgents` 记记忆→AGENTS.md 派生；`promotePortraitToAgents` 记画像→AGENTS.md 派生；`reviewQueue` / `markReviewed`；体检加 `derivations` 与 `reviewDue` |
+| `lib/api.js` | `GET /derivations`、`GET /reviews`、`POST /review`；`POST /promote` 支持 `from=portrait` |
+| `lib/index.js` | Config 加 `falsifierReviewDays`；工具加 `derivations` / `review` 两个动作、`promote from=portrait`；`memory save/update` 支持 `falsifier` / `reviewAt` |
+| `lib/client.js` | 维护页加「派生链」卡与「复审队列」卡；画像卡加「写进 AGENTS.md」按钮；记录卡 / 时间线加复审徽标 |
+| `test/derivation.test.mjs` | 14 项：指纹与 id、画像层源失效（归档 / 改写 / 删除）、AGENTS.md 派生失效、画像段改写 → 下游失效、链式传递、幂等、体检暴露；旧数据补排期从今天起算 |
+| `test/verification.test.mjs` | 12 项：falsifier 显式 / 提取 / 清除、默认与可配置排期、复审队列、复审推后、体检暴露；旧数据补排期从今天起算 |
+| `test/run-all.mjs` | 新增 `derivation` / `verification` 套件；14 个套件 / 490 条断言 |
 
 跑一遍：
 

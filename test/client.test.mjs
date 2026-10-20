@@ -1489,6 +1489,97 @@ await test('工作日志条：展开拉取并显示当天日志', async () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * 派生链与复审队列
+ * ------------------------------------------------------------------ */
+
+await test('维护页：派生链卡显示派生条目与失效状态', async () => {
+  const source = store.upsert(
+    { title: '派生链的源条目', content: '派生链测试正文' },
+    { workspace: WS },
+  ).record;
+  store.savePortrait(WS, {
+    sections: [{ key: 'preference', text: '派生链测试段落' }],
+    evidence: { preference: [source.id] },
+  });
+  /* 源被归档 → 画像那一层派生就失效了。 */
+  store.update(source.id, { archived: true }, { workspace: WS });
+
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  await clickTab('tabMaintain');
+  await settle(8);
+
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('derivationTitle'))), '缺少派生链卡');
+  assert.match(body, /已失效/, '应显示派生失效状态');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/derivations`),
+    '/derivations 应被调用',
+  );
+});
+
+await test('维护页：复审队列列出到期项，标记后不再到期', async () => {
+  const rec = store.upsert(
+    {
+      title: '该复审的条目',
+      content: '复审测试正文',
+      category: 'decision',
+      falsifier: '当接口变了这条就不成立',
+      reviewAt: new Date(Date.now() - 86400000).toISOString(),
+    },
+    { workspace: WS },
+  ).record;
+
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  await clickTab('tabMaintain');
+  await settle(8);
+
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('reviewTitle'))), '缺少复审队列卡');
+  assert.match(body, /该复审的条目/, '应列出到期条目');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/reviews`),
+    '/reviews 应被调用',
+  );
+
+  const btn = mini.findByText(view, makeT('zh')('reviewDone'), 'button');
+  assert.ok(btn, '应有「已复审」按钮');
+  mini.click(btn);
+  await settle(16);
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/review` && call.method === 'POST'),
+    '/review 应被调用',
+  );
+  assert.equal(store.reviewQueue(WS).due.filter((r) => r.id === rec.id).length, 0, '复审后不应再到期');
+});
+
+await test('画像卡：「写进 AGENTS.md」按钮调用 /promote', async () => {
+  /* AGENTS.md 写在工作区目录里，测试工作区是假路径：先把目录造出来。 */
+  fs.mkdirSync(WS, { recursive: true });
+  store.savePortrait(WS, {
+    sections: [{ key: 'preference', text: '客户端画像约定。' }],
+  });
+
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  const btn = mini.findByText(view, makeT('zh')('portraitPromote'), 'button');
+  assert.ok(btn, '应有「写进 AGENTS.md」按钮');
+  mini.click(btn);
+  await settle(16);
+
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/promote` && call.method === 'POST'),
+    '/promote 应被调用',
+  );
+  const agents = fs.readFileSync(path.join(WS, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /客户端画像约定/, 'AGENTS.md 应写进画像那一段');
+});
+
+/* ------------------------------------------------------------------ *
  * 结果
  * ------------------------------------------------------------------ */
 

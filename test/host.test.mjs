@@ -45,15 +45,17 @@ check('Config 解析空对象得到默认值', () => {
   assert.equal(value.dedupe, true);
   assert.equal(value.redactSecrets, true);
   assert.equal(value.quarantineTainted, true);
+  assert.equal(value.falsifierReviewDays, 90);
   assert.equal(value.sectionOrder, 550);
   assert.equal(value.directory, '');
 });
 
 check('Config 接受覆盖值', () => {
-  const value = mod.Config({ enabled: false, autoCapture: true, briefingLimit: 5 });
+  const value = mod.Config({ enabled: false, autoCapture: true, briefingLimit: 5, falsifierReviewDays: 30 });
   assert.equal(value.enabled, false);
   assert.equal(value.autoCapture, true);
   assert.equal(value.briefingLimit, 5);
+  assert.equal(value.falsifierReviewDays, 30);
 });
 
 check('Config 拒绝越界值', () => {

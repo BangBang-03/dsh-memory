@@ -241,7 +241,20 @@ await test('apply() 不抛错，工具 / 提示段 / 路由 / 事件都注册到
   assert.equal(tool.parameters.properties.action.type, 'string');
   assert.deepEqual(
     tool.parameters.properties.action.enum,
-    ['save', 'search', 'sessions', 'promote', 'list', 'get', 'update', 'forget', 'stats', 'journal'],
+    [
+      'save',
+      'search',
+      'sessions',
+      'promote',
+      'derivations',
+      'review',
+      'list',
+      'get',
+      'update',
+      'forget',
+      'stats',
+      'journal',
+    ],
   );
   assert.ok(tool.parameters.required.includes('action'));
 
@@ -1361,6 +1374,83 @@ await test('工具 journal：写一条、再读回来；空文本拒绝', async 
   assert.match(r.text, /完成了 M1 日志层。/);
   const empty = await tool.execute({ action: 'journal', text: '   ' }, exec);
   assert.match(empty.text, /内容为空/);
+});
+
+await test('工具 derivations：列出派生链，源失效后标脏', async () => {
+  const { calls, route, session, tool, exec } = activate();
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  const saved = await tool.execute(
+    {
+      action: 'save',
+      title: '派生源条目',
+      content: '这条正文足够长，不会被质量闸门归档，也不会被当成元记忆。',
+      category: 'convention',
+    },
+    exec,
+  );
+  const id = /`(mem_[A-Za-z0-9_]+)`/.exec(saved.text)?.[1];
+  assert.ok(id, '保存后应返回记忆 id');
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({
+      workspace,
+      sections: [{ key: 'preference', text: '派生段落' }],
+      evidence: { preference: [id] },
+    }),
+  });
+
+  const fresh = await tool.execute({ action: 'derivations' }, exec);
+  assert.match(fresh.text, /派生链/);
+  assert.match(fresh.text, /仍成立/);
+
+  await tool.execute({ action: 'update', id, archived: true }, exec);
+  const dirty = await tool.execute({ action: 'derivations' }, exec);
+  assert.match(dirty.text, /已失效/);
+});
+
+await test('工具 review：列出到期项，标记后不再到期', async () => {
+  const { tool, exec } = activate();
+  const saved = await tool.execute(
+    {
+      action: 'save',
+      title: '该复审的条目',
+      content: '这条正文足够长，不会被质量闸门归档，也不会被当成元记忆。',
+      category: 'decision',
+      falsifier: '当接口变了这条就不成立',
+      reviewAt: new Date(Date.now() - 86400000).toISOString(),
+    },
+    exec,
+  );
+  const id = /`(mem_[A-Za-z0-9_]+)`/.exec(saved.text)?.[1];
+  assert.ok(id, '保存后应返回记忆 id');
+
+  const list = await tool.execute({ action: 'review' }, exec);
+  assert.match(list.text, /该复审的条目/);
+  assert.match(list.text, /当接口变了这条就不成立/);
+
+  const marked = await tool.execute({ action: 'review', id }, exec);
+  assert.match(marked.text, /已复审/);
+  const after = await tool.execute({ action: 'review' }, exec);
+  assert.match(after.text, /没有到期/);
+});
+
+await test('工具 promote from=portrait：把画像段写进 AGENTS.md', async () => {
+  const { calls, route, session, tool, exec } = activate();
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({
+      workspace,
+      sections: [{ key: 'preference', text: '工具晋升的画像约定。' }],
+    }),
+  });
+
+  const res = await tool.execute({ action: 'promote', from: 'portrait', section: 'preference' }, exec);
+  assert.match(res.text, /已把画像/);
+  const agents = fs.readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /工具晋升的画像约定/);
 });
 
 await test('记忆纪律：默认注入；discipline=false 时不出现', async () => {
