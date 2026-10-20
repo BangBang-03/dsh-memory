@@ -448,7 +448,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/queue/approve` | 批准草稿（可带编辑字段；草稿带 `supersedes` 时兑现版本链） |
 | POST | `/queue/reject` | 拒绝草稿（默认删除，`mode: archive` 归档留底） |
 | POST | `/supersede/rollback` | 版本链回滚：传新条 id 恢复旧条，或传旧条 id 撤销推翻 |
-| GET | `/export` | 导出当前工作区与全局记忆（含全部字段，含 `falsifier` / `reviewAt`） |
+| GET | `/export` | 导出当前工作区与全局**条目**（字段齐全，含 `falsifier` / `reviewAt`；不含画像 / 日志 / 派生链） |
 | POST | `/import` | 导入（备份载荷、纯文本，或 `path`/`paths` 指到本机既有记忆文件） |
 | GET | `/journal` | 读最近 N 天工作日志（`days`，1-30，默认 3） |
 | POST | `/journal` | 写一条工作日志（`date` 可指定，默认当天） |
@@ -589,6 +589,10 @@ npm test          # 或 node test/run-all.mjs
 
 ## 边界
 
+- **备份载荷只覆盖条目**：`GET /export` 的载荷只有 `records`（条目字段含 `falsifier` / `reviewAt` 都会
+  原样回灌），**画像、派生链、工作日志、注入审计都不在载荷里**。实测：恢复到一个空库后
+  `portrait()` 返回 null、派生链 0 条——换机之后需要重新写画像。要做整库快照需把
+  `portrait.json` / `derivations.json` / `journal/` 一起纳入载荷（尚未实现）。
 - **派生链只审源端，不审目标端**：它回答的是「这层派生所依据的记忆现在还成不成立」，
   不回答「AGENTS.md 里那几行还在不在」。手工把晋升行或整个托管块删掉，链上仍显示 `fresh`
   （已用脚本实测确认）。要做目标端完整性需要另加一步「块内容回读比对」，目前未实现。

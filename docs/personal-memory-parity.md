@@ -242,6 +242,13 @@
 | `lib/index.js` | 修正全局画像重写的作用域：`list({workspace:'', includeGlobal:false})` 此前返回 0 条，全局条目一条都进不了提示词；改为 `includeGlobal: scope === 'global'` |
 | `test/run-all.mjs` | 新增 `derivation` / `verification` 套件；14 个套件 / 493 条断言 |
 
+### 自查暴露的既有边界（不是这批改出来的，但会影响这两个新层）
+
+| 事实 | 实测方式 | 影响 |
+| --- | --- | --- |
+| `export` 载荷只含条目，画像与派生链不在内 | 建库 → 写画像 + 晋升 → `export({workspace})` → 导入新库：`portrait()` 返回 null、`derivationList()` 为 0 条 | 换机/重装后画像需重写；整库快照（市场扫描里列的 P2）是这两层的共同前置 |
+| 派生链只比对源端 | 手工删掉 AGENTS.md 的晋升行 / 整个文件 → 链上仍 `fresh`；改源条目正文 → 立刻 `dirty:源记忆内容已改` | 「AGENTS.md 那几行还在不在」需要目标端回读比对，未实现 |
+
 跑一遍：
 
 ```powershell
