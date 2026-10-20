@@ -1244,12 +1244,12 @@ test('quality: 内容扎实的条目分数 >= 60 且带理由', () => {
 });
 
 test('decay: 半衰期 30 天、地板 0.5', () => {
-  const now = new Date().toISOString();
-  const thirty = new Date(Date.now() - 30 * 86400000).toISOString();
-  const year = new Date(Date.now() - 365 * 86400000).toISOString();
-  assert.equal(decayFactor(now), 1);
-  assert.ok(Math.abs(decayFactor(thirty) - 0.5) < 0.02);
-  assert.equal(decayFactor(year), 0.5);
+  // 注入固定时刻：不读真实时钟，否则「刚用过 = 1」会随调用间隔的毫秒数漂移。
+  const now = Date.parse('2026-10-20T00:00:00.000Z');
+  const back = (days) => new Date(now - days * 86400000).toISOString();
+  assert.equal(decayFactor(back(0), { now }), 1);
+  assert.ok(Math.abs(decayFactor(back(30), { now }) - 0.5) < 0.001);
+  assert.equal(decayFactor(back(365), { now }), 0.5);
   assert.equal(decayFactor(null), 0.5);
 });
 
