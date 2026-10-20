@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-490%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-493%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -251,7 +251,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 490 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 493 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -426,6 +426,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/state` | 版本、工作区、统计、设置、类别、工作区列表、标签、最近提炼、最近简报计量 |
+| GET | `/briefing-preview` | 简报预览：按当前设置算「下次会话会注入哪些记忆」，含画像计量与预算挤掉的条目 |
 | GET | `/list` | 列表；`q/category/scope/tag/archived/sort/limit/offset`（不含草稿） |
 | POST | `/save` | 新建或合并；带 `supersedes` 走版本链（旧条归档、可回滚） |
 | POST | `/update` | 改一条（含 `related` / `keywords`） |
@@ -440,12 +441,17 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/portrait/history` | 画像版本列表（降序） |
 | GET | `/portrait/diff` | 两个版本的逐段 diff（`from=previous` 默认，返回 `+`/`−` 行与摘要） |
 | POST | `/portrait/rewrite` | 触发画像重写（`captureMode` 决定直写或进待审） |
-| GET/POST | `/portrait/draft` | 读取 / 批准 / 丢弃待审重写稿 |
+| GET | `/portrait/draft` | 读取待审重写稿（批准前对模型不可见） |
+| POST | `/portrait/draft/approve` | 批准重写稿：落库、旧版留档、清待审文件 |
+| POST | `/portrait/draft/discard` | 丢弃重写稿 |
 | GET | `/queue` | 待审草稿队列 |
 | POST | `/queue/approve` | 批准草稿（可带编辑字段；草稿带 `supersedes` 时兑现版本链） |
 | POST | `/queue/reject` | 拒绝草稿（默认删除，`mode: archive` 归档留底） |
 | POST | `/supersede/rollback` | 版本链回滚：传新条 id 恢复旧条，或传旧条 id 撤销推翻 |
-| GET | `/export` / POST `/import` | 导出 / 导入（备份载荷、纯文本，或 `path`/`paths` 指到本机既有记忆文件） |
+| GET | `/export` | 导出当前工作区与全局记忆（含全部字段，含 `falsifier` / `reviewAt`） |
+| POST | `/import` | 导入（备份载荷、纯文本，或 `path`/`paths` 指到本机既有记忆文件） |
+| GET | `/journal` | 读最近 N 天工作日志（`days`，1-30，默认 3） |
+| POST | `/journal` | 写一条工作日志（`date` 可指定，默认当天） |
 | GET | `/import-scan` | 扫描本机既有记忆来源（WorkBuddy / Qoder / Claude Code / Codex / Windsurf / 本插件镜像），只读 |
 | POST | `/import-scan` | 按来源 id 或路径导入，用户级来源自动进全局库 |
 | GET | `/mirror` | 取当前工作区镜像的 Markdown |
@@ -456,6 +462,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/derivations` | 跨层派生链：每层派生了什么、源现在还成不成立（`state` 为 `fresh` / `dirty`，带失效原因） |
 | GET | `/reviews` | 复审队列：带失效条件、到期该复查的记忆（`due` / `soon`） |
 | POST | `/review` | 复审一条：记「看过，还成立」，到期时间推后一个周期 |
+| POST | `/tags/merge` | 标签归并：把大小写等写法变体合并成目标写法（含全局库与草稿） |
 | POST | `/promote` | 程序记忆晋升：把一条记忆写进工作区 AGENTS.md 托管块（幂等）；带 `from=portrait` 则改写画像的某一段 |
 | POST | `/distill` | 只返回候选，不落库 |
 | POST | `/security/scan` | 写入安全：扫描任意文本的密钥与注入模式，只报告不落库 |
@@ -523,7 +530,7 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、490 项：
+14 个套件、493 项：
 
 - `store` 122 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
@@ -551,11 +558,11 @@ npm test          # 或 node test/run-all.mjs
   Claude 的索引页剔除）。
 - `distill` 41 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别；v0.3.0：
   keywords/supersedes 解析、user 类别强制 global、提示词 v2 指引、existingRecords 带 id。
-- `api` 69 项 —— 38 个端点、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
+- `api` 71 项 —— 42 个端点（40 条路径）、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
   /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
   /save 带 supersedes 与 /supersede/rollback；v0.6：`GET /portrait/diff`（上一版 → 当前版的逐段 diff）。
 - `host` 10 项 —— 导出形状、Config 默认值与越界校验。
-- `activate` 44 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
+- `activate` 45 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
   工具 save/search/get/forget、全文简报装不下时明说「只列了 N / M 条」、`/memory/api/*` 路由真的应答
   且守好 403/404、手动提炼端到端、面板保存落到工作区镜像、既有记忆扫描导入、数据目录不可用不炸外壳；
   v0.3.0：索引简报（带 id 不展开正文 + full 模式对照）、轮末召回（召回块出现、连续两轮不重复）、
@@ -582,6 +589,9 @@ npm test          # 或 node test/run-all.mjs
 
 ## 边界
 
+- **派生链只审源端，不审目标端**：它回答的是「这层派生所依据的记忆现在还成不成立」，
+  不回答「AGENTS.md 里那几行还在不在」。手工把晋升行或整个托管块删掉，链上仍显示 `fresh`
+  （已用脚本实测确认）。要做目标端完整性需要另加一步「块内容回读比对」，目前未实现。
 - 记忆是**工件**不是指令：自动提炼结果一律标记来源，注入时也用「背景资料」措辞框住，
   避免把历史对话里的内容当成当前任务。
 - 非回环页面拿不到持久设置，所以管理界面走自定义路由而不是 `configForms`。

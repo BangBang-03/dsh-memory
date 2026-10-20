@@ -4,6 +4,9 @@
 - Fixture：`test/fixtures/retrieval-hard-60.json`（54 条记忆 / 60 条查询，六类各 10 条）。
 - 口径：真实 `createMemoryStore` + `search(limit=10)`，本地确定性计算；数字为自测，不是公开榜单。
 - 复跑：`node test/retrieval.test.mjs` 或 `node test/run-all.mjs`。
+- **窗口隔离**：评测在自己的临时目录里建库（`store-hard` / `ws-hard`），语料只有 fixture 的 54 条
+  合成条目（id 前缀 `mem_eval_`），不读真实记忆库，所以数字不受本机真实数据污染；
+  代价是它衡量的是实现差异，不是真实用户分布（见 §3.5）。
 
 ---
 

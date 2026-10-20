@@ -1506,6 +1506,33 @@ await test('画像重写 direct：落库版本 +1，提示词里带日志原料'
   assert.match(prompt, /重写原料日志。/, '提示词应包含日志原料');
 });
 
+await test('画像重写（全局）：原料里要带得上全局条目，不只是日志', async () => {
+  const seen = [];
+  const { calls, route, session, tool, exec } = activate({ services: { llm: fakeLlm(REWRITE_REPLY, seen) } });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await tool.execute(
+    {
+      action: 'save',
+      title: '全局画像的重写原料',
+      content: '这条是全局条目，正文足够长，不该被质量闸门拦掉。',
+      category: 'preference',
+      scope: 'global',
+    },
+    exec,
+  );
+
+  const res = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/rewrite',
+    body: JSON.stringify({ workspace, scope: 'global' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true, `全局重写应能拿到原料，实际：${JSON.stringify(res.body)}`);
+
+  const prompt = seen.at(-1)?.messages?.[0]?.content?.[0]?.text || '';
+  assert.match(prompt, /全局画像的重写原料/, '提示词应包含全局条目');
+});
+
 await test('画像重写 draft：进待审 → 批准后生效 → 重复批准 404', async () => {
   const { calls, route, session } = activate({ services: { llm: fakeLlm(REWRITE_REPLY) } });
   calls.events.find(([name]) => name === 'session/created')[1](session);

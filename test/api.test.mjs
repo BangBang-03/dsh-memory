@@ -817,6 +817,49 @@ await test('POST /promote from=portrait：把画像段写进 AGENTS.md', async (
   assert.equal(noPortrait.body.error, 'no_portrait');
 });
 
+await test('GET /reviews：超过上限时截断返回，但带回真实总数', async () => {
+  const ws = path.join(tmp, 'ws-review-cap');
+  fs.mkdirSync(ws, { recursive: true });
+  const past = new Date(Date.now() - 86400000).toISOString();
+  for (let i = 0; i < 60; i += 1) {
+    store.upsert(
+      {
+        title: `批量到期条目 ${i}`,
+        content: `第 ${i} 条正文，够长不会被质量闸门归档掉，用于验证复审队列的截断行为。`,
+        category: 'decision',
+        falsifier: `当条件 ${i} 出现就不成立`,
+        reviewAt: past,
+      },
+      { workspace: ws, dedupe: false },
+    );
+  }
+
+  const res = await call('GET', '/reviews', { query: { workspace: ws } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.dueCount, 60, '总数不该被截断掉');
+  assert.equal(res.body.due.length, 50, '默认上限 50');
+  assert.equal(res.body.limit, 50);
+
+  const widened = await call('GET', '/reviews', { query: { workspace: ws, limit: '60' } });
+  assert.equal(widened.body.due.length, 60);
+});
+
+await test('POST /promote：工作区目录不存在时报 no_workspace，不把异常抛给路由', async () => {
+  const ghost = path.join(tmp, 'ws-does-not-exist');
+  const rec = store.upsert(
+    { title: '晋升到不存在的工作区', content: '正文', category: 'convention' },
+    { workspace: WS },
+  ).record;
+
+  const byRecord = await call('POST', '/promote', { body: { id: rec.id, workspace: ghost } });
+  assert.equal(byRecord.status, 400);
+  assert.equal(byRecord.body.error, 'no_workspace');
+
+  const byPortrait = await call('POST', '/promote', { body: { from: 'portrait', workspace: ghost } });
+  assert.equal(byPortrait.status, 400);
+  assert.equal(byPortrait.body.error, 'no_workspace');
+});
+
 /* ---------------- 画像 2.0：版本 diff ---------------- */
 
 await test('GET /portrait/diff：上一版到当前版的逐段 diff', async () => {
