@@ -1124,6 +1124,11 @@ await test('时间线排布：档案视图下拉切到时间线，含归档记�
 });
 
 await test('维护 tab：KPI 与体检结果渲染，/health 真被调用', async () => {
+  const exposed = store.upsert(
+    { title: '面板曝光未用示例', content: '被注入多次但从未被打开或引用。' },
+    { workspace: WS },
+  ).record;
+  for (let i = 0; i < 3; i += 1) store.markExposed([exposed.id], { workspace: WS });
   renderPage('zh');
   await settle(8);
   await clickTab('tabMaintain');
@@ -1131,7 +1136,100 @@ await test('维护 tab：KPI 与体检结果渲染，/health 真被调用', asyn
   assert.match(body, new RegExp(escapeRe(makeT('zh')('healthKpiTotal'))), '缺少记忆总数 KPI');
   assert.match(body, new RegExp(escapeRe(makeT('zh')('healthToken'))), '缺少简报注入 KPI');
   assert.match(body, new RegExp(escapeRe(makeT('zh')('healthProblems'))), '缺少体检结果区');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('healthExposedUnused'))), '缺少曝光未用提示');
+  assert.match(body, /面板曝光未用示例 ×3/, '应显示曝光次数');
   assert.ok(fetchCalls.some((call) => call.pathname === `${API_PREFIX}/health`), '/health 未被调用');
+});
+
+await test('维护页：Dream 按钮调用 /dream 并显示报告', async () => {
+  store.upsert({ title: 'Dream 重复 A', content: 'dream 整理测试 identical-content' }, { workspace: WS });
+  store.upsert({ title: 'Dream 重复 B', content: 'dream 整理测试 identical-content' }, { workspace: WS });
+  const unused = store.upsert(
+    { title: 'Dream 曝光未用', content: '只被注入过，从未被打开或引用。' },
+    { workspace: WS },
+  ).record;
+  for (let i = 0; i < 3; i += 1) store.markExposed([unused.id], { workspace: WS });
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  await clickTab('tabMaintain');
+
+  const btn = mini.findByText(view, makeT('zh')('dreamRun'), 'button');
+  assert.ok(btn, '缺少 Dream 按钮');
+  mini.click(btn);
+  await settle(16);
+
+  assert.ok(fetchCalls.some((call) => call.pathname === `${API_PREFIX}/dream`), '/dream 应被调用');
+  const body = text();
+  assert.match(body, /合并 1 簇/, '应显示合并簇数');
+  assert.match(body, /曝光未用 [1-9]\d* 条/, '应显示曝光未用数');
+  assert.match(body, /Dream 完成/, '应有完成提示');
+});
+
+await test('维护页：注入审计显示最近进 prompt 的字节与 hash', async () => {
+  store.injectionLogAppend(WS, {
+    kind: 'briefing',
+    mode: 'index',
+    ids: ['mem_audit_demo'],
+    text: '注入审计样例正文：这一行真的进过 prompt。',
+  });
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  await clickTab('tabMaintain');
+  await settle(8);
+
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('injectionTitle'))), '缺少注入审计卡');
+  assert.match(body, /注入审计样例正文/, '应显示注入预览');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/injections`),
+    '/injections 应被调用',
+  );
+});
+
+await test('画像卡：段落带证据标签，没有证据的段标「未溯源」', async () => {
+  const version = (store.portrait(WS)?.version || 0) + 1;
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/save`,
+    body: {
+      workspace: WS,
+      sections: [
+        { key: 'background', text: '有证据的背景段。' },
+        { key: 'focus', text: '没有证据的关注段。' },
+      ],
+      evidence: { background: ['mem_evidence_demo', 'journal:2026-10-20'] },
+    },
+  });
+
+  renderPage('zh');
+  await settle(8);
+  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
+  assert.ok(open, '缺少「展开画像」按钮');
+  mini.click(open);
+  await settle(6);
+
+  const wsTitle = mini
+    .findAll(
+      view,
+      (node) =>
+        node.type === 'span' &&
+        mini.textOf(node) === `${makeT('zh')('portraitWorkspaceLabel')} v${version}`,
+    )
+    .find((node) => typeof node.props.onClick === 'function');
+  assert.ok(wsTitle, '找不到可点击的工作区画像子行标题');
+  mini.click(wsTitle);
+  await settle(6);
+
+  const body = text();
+  assert.match(body, /#mem_evidence_demo/, '应显示记忆证据标签');
+  assert.match(body, /2026-10-20 日志/, '应显示日志证据');
+  assert.match(
+    body,
+    new RegExp(escapeRe(makeT('zh')('portraitUntraced'))),
+    '没有证据的段应标未溯源',
+  );
 });
 
 await test('维护页待审队列：草稿批准后生效、拒绝后消失，徽标随草稿数变化', async () => {
@@ -1193,6 +1291,10 @@ await test('维护页待审队列：草稿批准后生效、拒绝后消失，�
  * ------------------------------------------------------------------ */
 
 await test('画像卡：渲染、展开显示两份画像、编辑保存走 /portrait/save', async () => {
+  /* Dream 测试可能已经触发过一次画像重写：基准版本号要在本测试写入前取。 */
+  const baseWsVersion = store.portrait(WS)?.version || 0;
+  const baseGlVersion = store.portrait('')?.version || 0;
+
   /* 准备：给当前工作区与全局各写一份画像。 */
   await api.handle({
     method: 'POST',
@@ -1211,6 +1313,7 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
     body: { workspace: WS, scope: 'global', sections: [{ key: 'preference', text: '全局偏好文本。' }] },
   });
 
+  /* 版本号用动态值：本测试自己 +1，之前的 Dream/重写可能已经推过版本。 */
   fetchCalls.length = 0;
   renderPage('zh');
   await settle(8);
@@ -1230,17 +1333,25 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
   const opened = text();
   assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceLabel'))), '展开后应有工作区画像子行');
   assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '展开后应有全局画像子行');
-  assert.match(opened, /v1/, '应显示版本号');
+  assert.match(opened, /v\d+/, '应显示版本号');
   assert.ok(!opened.includes('客户端测试背景。'), '子折叠默认收起，正文不应铺开');
 
   /* 二层：点开工作区子行看正文，再点开全局子行。 */
-  const wsTitle = mini.findByText(view, `${makeT('zh')('portraitWorkspaceLabel')} v1`, 'span');
+  const wsTitle = mini.findByText(
+    view,
+    `${makeT('zh')('portraitWorkspaceLabel')} v${baseWsVersion + 1}`,
+    'span',
+  );
   assert.ok(wsTitle, '找不到工作区画像子行标题');
   mini.click(wsTitle);
   await settle(6);
   assert.ok(text().includes('客户端测试背景。'), '展开子行后应显示工作区画像正文');
 
-  const glTitle = mini.findByText(view, `${makeT('zh')('portraitGlobalLabel')} v1`, 'span');
+  const glTitle = mini.findByText(
+    view,
+    `${makeT('zh')('portraitGlobalLabel')} v${baseGlVersion + 1}`,
+    'span',
+  );
   assert.ok(glTitle, '找不到全局画像子行标题');
   mini.click(glTitle);
   await settle(6);
@@ -1265,7 +1376,7 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
   await settle(12);
 
   const after = store.portrait(WS);
-  assert.equal(after.version, 2, '保存后版本递增');
+  assert.equal(after.version, baseWsVersion + 2, '保存后版本递增（初始保存 + 编辑保存）');
   assert.equal(after.sections.find((s) => s.key === 'background').text, '改过的背景。');
   assert.equal(after.sections.find((s) => s.key === 'focus').text, '改过的关注。');
   assert.ok(
@@ -1273,6 +1384,31 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
     '/portrait/save 应被调用',
   );
   assert.match(text(), /画像已保存/, '保存后应出现提示');
+});
+
+await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/- 行', async () => {
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+
+  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
+  assert.ok(open, '缺少「展开画像」按钮');
+  mini.click(open);
+  await settle(6);
+
+  const diffBtn = mini.findByText(view, makeT('zh')('portraitDiff'), 'button');
+  assert.ok(diffBtn, '缺少「这次变了什么」按钮');
+  mini.click(diffBtn);
+  await settle(12);
+
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait/diff`),
+    '/portrait/diff 应被调用',
+  );
+  const now = text();
+  assert.match(now, /v\d+ → v\d+/, '应显示版本区间');
+  assert.match(now, /\+ 改过的背景。/, '应显示新增行');
+  assert.match(now, /− 客户端测试背景。/, '应显示删除行');
 });
 
 await test('画像卡：重写按钮触发 /portrait/rewrite，完成后出提示', async () => {

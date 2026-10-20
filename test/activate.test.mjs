@@ -155,6 +155,12 @@ async function callRoute(handler, options) {
   return { status: res.statusCode, body };
 }
 
+async function listRecords(route, workspace) {
+  const q = `?workspace=${encodeURIComponent(workspace)}`;
+  const res = await callRoute(route, { url: `/memory/api/list${q}` });
+  return res.body?.records || [];
+}
+
 /**
  * 假宿主跑一遍 `agent/pre-step`：把 claimed 交给插件的 waterfall 监听器，
  * `next()` 返回宿主的原生 decision（claimed 即「这一 step 要进入的批次」）。
@@ -233,7 +239,10 @@ await test('apply() 不抛错，工具 / 提示段 / 路由 / 事件都注册到
   // defineTool 在定义时就把简化 DSL 编译成 JSON Schema。
   assert.equal(tool.parameters.type, 'object');
   assert.equal(tool.parameters.properties.action.type, 'string');
-  assert.deepEqual(tool.parameters.properties.action.enum, ['save', 'search', 'list', 'get', 'update', 'forget', 'stats', 'journal']);
+  assert.deepEqual(
+    tool.parameters.properties.action.enum,
+    ['save', 'search', 'sessions', 'promote', 'list', 'get', 'update', 'forget', 'stats', 'journal'],
+  );
   assert.ok(tool.parameters.required.includes('action'));
 
   assert.equal(calls.sections.length, 1);
@@ -246,7 +255,7 @@ await test('apply() 不抛错，工具 / 提示段 / 路由 / 事件都注册到
 
   assert.deepEqual(
     calls.events.map(([name]) => name).sort(),
-    ['agent/pre-step', 'session/created', 'session/event'],
+    ['agent/pre-step', 'session/created', 'session/event', 'tools/pre-execute'],
   );
   assert.deepEqual(calls.injects.map((deps) => deps[0]).sort(), ['sessions', 'systemPrompt', 'webServer']);
   assert.deepEqual(calls.warn, []);
@@ -605,6 +614,8 @@ await test('轮次结束的自动提炼：开着的时候后台真的落库', as
   const record = list.body.records.find((item) => item.source === 'auto');
   assert.equal(record.title, '插件基调用 DeepSeek 鲸鱼蓝');
   assert.equal(record.sessionId, 'session-1');
+  assert.equal(record.useCount, 0, '刚沉淀不等于被使用');
+  assert.equal(record.exposedCount, 0, '落库本身不算曝光');
 
   // 面板上的「最近提炼」也要能看到这次自动提炼。
   const state = await callRoute(route, { url: `/memory/api/state${q}` });
@@ -791,6 +802,144 @@ await test('索引模式简报（默认）：一行一条带 id、不展开正�
   assert.match(fullCalls.sections[0].text({ agent: { session: fullSession } }), /全文正文在这里。/);
 });
 
+await test('路径 JIT：工具触达 files 挂靠的文件时，相关记忆在下一个 pre-step 尾部注入', async () => {
+  const { calls, tool, exec, session, route } = activate({ briefing: false, turnRecall: false });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await tool.execute(
+    {
+      action: 'save',
+      title: '存储层分库约定',
+      content: '每个工作区一个 memories.json；改存储层前先看这个文件。',
+      category: 'convention',
+      files: ['lib/store.js'],
+    },
+    exec,
+  );
+
+  /* 工具触达挂靠文件：pre-execute 只观察（原样放行 next()），把路径记进 stash。 */
+  const preExecute = calls.events.find(([name]) => name === 'tools/pre-execute')[1];
+  const passthrough = Symbol('passthrough');
+  const released = await preExecute(
+    { agent: { session }, name: 'read', args: { path: `${workspace}/lib/store.js` } },
+    async () => passthrough,
+  );
+  assert.equal(released, passthrough, 'pre-execute 不拥有决策，必须原样放行 next()');
+
+  /* 下一个 pre-step：路径召回作为尾部消息进入本 step。 */
+  const userMessage = { role: 'user', content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } };
+  const entered = await runPreStep(calls, { agent: { session }, messages: [userMessage], turn: 1, step: 2 });
+  assert.equal(entered.messages.length, 2, '路径召回应作为一条额外消息进入本 step');
+  assert.equal(entered.messages[0], userMessage, '被认领的消息保持原样在前');
+  const tail = entered.messages[1];
+  assert.equal(tail.source.kind, 'dsh-memory');
+  assert.equal(tail.source.form, 'path-recall');
+  assert.ok(
+    tail.source.files.some((file) => /lib[\\/]+store\.js$/.test(file)),
+    '触达的 store.js 应进入召回批次',
+  );
+  const tailText = tail.content.map((block) => block.text).join('');
+  assert.match(tailText, /相关记忆（按文件触达）/);
+  assert.match(tailText, /只是背景参考/, '路径召回同样要写清是背景参考');
+  assert.match(tailText, /存储层分库约定/);
+
+  const recalled = (await listRecords(route, workspace)).find((r) => r.title === '存储层分库约定');
+  assert.equal(recalled.exposedCount, 1, '路径 JIT 注入应记曝光');
+  assert.equal(recalled.useCount, 0, '曝光不是使用');
+
+  /* 同一次触达只注入一次：stash 已弹出，后续 pre-step 不再带出。 */
+  const again = await runPreStep(calls, {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '再继续' }], source: { kind: 'user' } }],
+    turn: 1,
+    step: 3,
+  });
+  assert.equal(again.messages.length, 1, '同一次文件触达不该重复注入');
+
+  /* 触达没有挂靠记忆的文件：不出额外消息。 */
+  await preExecute(
+    { agent: { session }, name: 'read', args: { path: `${workspace}/README.md` } },
+    async () => null,
+  );
+  const clean = await runPreStep(calls, {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '换文件' }], source: { kind: 'user' } }],
+    turn: 1,
+    step: 4,
+  });
+  assert.equal(clean.messages.length, 1, '没有命中时不注入');
+});
+
+await test('会话索引与溯源：turn/end 落原文，action=sessions 搜回原话', async () => {
+  const { calls, tool, exec, session } = activate({ briefing: false, turnRecall: false });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '我们决定检索层用 BM25F 加 RRF 融合' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+  ];
+  onEvent(session, { type: 'turn/end', turn: 3 });
+
+  const hit = await tool.execute({ action: 'sessions', query: 'BM25F 融合' }, exec);
+  assert.ok(hit.text.includes('BM25F'), '应搜回当轮原话');
+  assert.ok(hit.text.includes('turn 3'), '应带轮次');
+
+  const miss = await tool.execute({ action: 'sessions', query: '完全不相关的长颈鹿话题' }, exec);
+  assert.equal(miss.count, 0, '无命中时明说');
+});
+
+await test('程序记忆晋升：action=promote 写进 AGENTS.md 托管块，重复晋升幂等', async () => {
+  const { tool, exec } = activate({ briefing: false });
+  const saved = await tool.execute(
+    { action: 'save', title: '发版前先跑测试', content: '改完任何一半都要重跑全部断言。', category: 'convention' },
+    exec,
+  );
+  const id = (saved.text.match(/`([^`]+)`/) || [])[1];
+  assert.ok(id, 'save 的返回文本里应带新记忆 id');
+
+  const promoted = await tool.execute({ action: 'promote', id }, exec);
+  assert.match(promoted.text, /已晋升进/);
+  const agentsMd = fs.readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8');
+  assert.match(agentsMd, /发版前先跑测试/);
+  assert.match(agentsMd, /dsh-memory:promoted 开始/);
+
+  const again = await tool.execute({ action: 'promote', id }, exec);
+  assert.match(again.text, /已晋升进/);
+  const twice = fs.readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8');
+  assert.equal((twice.match(/发版前先跑测试/g) || []).length, 1, '重复晋升不产生重复行');
+
+  const global = await tool.execute(
+    { action: 'save', title: '全局偏好', content: '全局内容', category: 'preference', scope: 'global' },
+    exec,
+  );
+  const globalId = (global.text.match(/`([^`]+)`/) || [])[1];
+  const refused = await tool.execute({ action: 'promote', id: globalId }, exec);
+  assert.match(refused.text, /不晋升/, 'global 记忆应拒绝晋升');
+
+  const junk = await tool.execute(
+    { action: 'save', title: '一条笔记', content: '普通笔记', category: 'note' },
+    exec,
+  );
+  const junkId = (junk.text.match(/`([^`]+)`/) || [])[1];
+  const notPromotable = await tool.execute({ action: 'promote', id: junkId }, exec);
+  assert.match(notPromotable.text, /只有 convention/);
+});
+
+await test('压缩协同：compaction/summary 把摘要照录进工作日志', async () => {
+  const { calls, route, session } = activate({ briefing: false, autoCapture: false });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+
+  onEvent(session, { type: 'compaction/summary', data: { summary: '本轮敲定检索层用 BM25F' } });
+  const read1 = await callRoute(route, { method: 'GET', url: '/memory/api/journal?days=1' });
+  const text1 = (read1.body?.recent || []).map((item) => item.text).join('\n');
+  assert.match(text1, /上下文已压缩；压缩摘要（原文照录）：本轮敲定检索层用 BM25F/);
+
+  onEvent(session, { type: 'compaction/prune' });
+  const read2 = await callRoute(route, { method: 'GET', url: '/memory/api/journal?days=1' });
+  const text2 = (read2.body?.recent || []).map((item) => item.text).join('\n');
+  assert.match(text2, /上下文已压缩；压缩前的结论如未写进记忆或日志/);
+});
+
 await test('轮末召回改走尾部注入：系统提示里没有召回，agent/pre-step 每轮只注入一次', async () => {
   const { calls, tool, exec, session } = activate({ briefing: false });
   const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
@@ -847,6 +996,115 @@ await test('轮末召回改走尾部注入：系统提示里没有召回，agent
   });
   assert.equal(third.messages.length, 1, '连续两轮不该重复召回同一条');
   assert.doesNotMatch(calls.sections[0].text({ agent: { session } }), /与当前话题相关的召回/);
+});
+
+await test('轮末召回：排期不等于曝光，真正注入时才记 exposedCount', async () => {
+  const { calls, tool, exec, session, route } = activate({ briefing: false, autoCapture: false });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  const saved = await tool.execute(
+    { action: 'save', title: '构建命令是 pnpm build', content: '改完客户端半要重跑 pnpm build。', category: 'convention' },
+    exec,
+  );
+  const id = /`(mem_[A-Za-z0-9_]+)`/.exec(saved.text)?.[1];
+
+  session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '帮我跑一下构建命令，然后告诉我结果' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+  ];
+  onEvent(session, { type: 'turn/end' });
+
+  const scheduled = (await listRecords(route, workspace)).find((r) => r.id === id);
+  assert.equal(scheduled.exposedCount, 0, '只是排期、还没注入，不该算曝光');
+  assert.equal(scheduled.useCount, 0, '排期更不该算使用');
+
+  const userMessage = { role: 'user', content: [{ type: 'text', text: '那构建产物在哪' }], source: { kind: 'user' } };
+  const entered = await runPreStep(calls, { agent: { session }, messages: [userMessage], turn: 2, step: 1 });
+  assert.equal(entered.messages.length, 2, '召回应该真的注入');
+
+  const injected = (await listRecords(route, workspace)).find((r) => r.id === id);
+  assert.equal(injected.exposedCount, 1, '真正进入 prompt 才记曝光');
+  assert.equal(injected.useCount, 0, '曝光不能冒充使用');
+});
+
+await test('搜索只记曝光，get 记打开，assistant 引用 id 记 cited', async () => {
+  const { calls, tool, exec, session, route } = activate({
+    briefing: false,
+    turnRecall: false,
+    autoCapture: false,
+  });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  const saved = await tool.execute(
+    { action: 'save', title: '检索计数约定', content: '搜索命中只算看见，读过或引用才算使用。', category: 'convention' },
+    exec,
+  );
+  const id = /`(mem_[A-Za-z0-9_]+)`/.exec(saved.text)?.[1];
+
+  await tool.execute({ action: 'search', query: '检索计数' }, exec);
+  const afterSearch = (await listRecords(route, workspace)).find((r) => r.id === id);
+  assert.equal(afterSearch.exposedCount, 1);
+  assert.equal(afterSearch.useCount, 0);
+  assert.equal(afterSearch.openedCount, 0);
+
+  const got = await tool.execute({ action: 'get', id }, exec);
+  assert.match(got.text, /打开 1/);
+  assert.match(got.text, /引用 0/);
+  const afterGet = (await listRecords(route, workspace)).find((r) => r.id === id);
+  assert.equal(afterGet.openedCount, 1);
+  assert.equal(afterGet.useCount, 1);
+
+  session.deriveMessages = () => [
+    { role: 'assistant', content: [{ type: 'text', text: `结论见 ${id}。` }] },
+  ];
+  onEvent(session, { type: 'turn/end' });
+  const afterCite = (await listRecords(route, workspace)).find((r) => r.id === id);
+  assert.equal(afterCite.citedCount, 1);
+  assert.equal(afterCite.useCount, 2);
+});
+
+await test('注入审计：简报与尾部召回都留下可复算的字节、hash 与取舍', async () => {
+  const { calls, tool, exec, session, route } = activate({ autoCapture: false, briefingLimit: 1 });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  const q = `?workspace=${encodeURIComponent(workspace)}`;
+
+  await tool.execute(
+    { action: 'save', title: '审计用的记忆甲', content: '这条记忆用来验证注入审计确实记下了进 prompt 的字节。', category: 'fact' },
+    exec,
+  );
+
+  calls.sections[0].text({ agent: { session } });
+  calls.sections[0].text({ agent: { session } });
+
+  let entries = (await callRoute(route, { url: `/memory/api/injections${q}` })).body.entries;
+  assert.equal(entries.length, 1, '同一会话冻结后不应重复记账');
+  assert.equal(entries[0].kind, 'briefing');
+  assert.equal(entries[0].hash.length, 16);
+  assert.ok(entries[0].chars > 0);
+  assert.ok(entries[0].preview.includes('工作区长期记忆'), '审计应能看到真正注入的正文');
+  assert.ok(entries[0].ids.length >= 1, '审计应记下带了哪些记忆 id');
+
+  /* 简报已冻结：之后新增的记忆不在简报里，才可能被尾部召回带出去。 */
+  await tool.execute(
+    { action: 'save', title: '审计用的记忆乙', content: '这条在简报冻结之后写入，只有尾部召回才会带上它。', category: 'fact' },
+    exec,
+  );
+  session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '帮我看看审计用的记忆乙' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+  ];
+  onEvent(session, { type: 'turn/end' });
+  const userMessage = { role: 'user', content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } };
+  await runPreStep(calls, { agent: { session }, messages: [userMessage], turn: 2, step: 1 });
+
+  entries = (await callRoute(route, { url: `/memory/api/injections${q}` })).body.entries;
+  const kinds = entries.map((entry) => entry.kind);
+  assert.ok(kinds.includes('turn-recall'), `应有尾部召回审计，实际=${kinds.join(',')}`);
+  const tail = entries.find((entry) => entry.kind === 'turn-recall');
+  assert.equal(tail.hash.length, 16);
+  assert.ok(tail.ids.length >= 1, '尾部召回应记下 id');
 });
 
 await test('captureMode=draft：自动提炼先进队列，批准后才生效', async () => {
@@ -1091,6 +1349,7 @@ const REWRITE_REPLY = JSON.stringify({
     { key: 'background', text: '重写后的背景。' },
     { key: 'focus', text: '重写后的关注。' },
   ],
+  evidence: { background: ['journal:2026-10-20'], focus: [] },
 });
 
 await test('工具 journal：写一条、再读回来；空文本拒绝', async () => {
@@ -1149,6 +1408,9 @@ await test('画像重写 direct：落库版本 +1，提示词里带日志原料'
   assert.equal(res.body.drafted, false);
   assert.equal(res.body.portrait.version, 2);
   assert.equal(res.body.portrait.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+  assert.deepEqual(res.body.portrait.evidence.background, ['journal:2026-10-20'], '重写的证据应落库');
+  assert.equal(res.body.portrait.sectionMeta.background.untraced, false);
+  assert.equal(res.body.portrait.sectionMeta.focus.untraced, true, '没有证据的段标未溯源');
 
   const prompt = seen.at(-1)?.messages?.[0]?.content?.[0]?.text || '';
   assert.match(prompt, /重写原料日志。/, '提示词应包含日志原料');
@@ -1177,6 +1439,7 @@ await test('画像重写 draft：进待审 → 批准后生效 → 重复批准 
 
   const draft = await callRoute(route, { url: '/memory/api/portrait/draft' });
   assert.equal(draft.body.draft.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+  assert.deepEqual(draft.body.draft.evidence.background, ['journal:2026-10-20'], '草稿应带证据');
 
   const approve = await callRoute(route, {
     method: 'POST',
@@ -1189,6 +1452,7 @@ await test('画像重写 draft：进待审 → 批准后生效 → 重复批准 
   const after = await callRoute(route, { url: '/memory/api/portrait' });
   assert.equal(after.body.draft, false);
   assert.equal(after.body.workspace.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+  assert.deepEqual(after.body.workspace.evidence.background, ['journal:2026-10-20'], '批准后证据生效');
 
   const again = await callRoute(route, {
     method: 'POST',

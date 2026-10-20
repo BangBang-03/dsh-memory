@@ -43,6 +43,8 @@ check('Config 解析空对象得到默认值', () => {
   assert.equal(value.minConfidence, 0.4);
   assert.equal(value.maxPerTurn, 5);
   assert.equal(value.dedupe, true);
+  assert.equal(value.redactSecrets, true);
+  assert.equal(value.quarantineTainted, true);
   assert.equal(value.sectionOrder, 550);
   assert.equal(value.directory, '');
 });

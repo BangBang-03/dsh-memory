@@ -141,6 +141,10 @@ test('upsert: 新增返回完整记录', () => {
   assert.equal(record.scope, 'workspace');
   assert.equal(record.pinned, false);
   assert.equal(record.useCount, 0);
+  assert.equal(record.exposedCount, 0);
+  assert.equal(record.openedCount, 0);
+  assert.equal(record.citedCount, 0);
+  assert.equal(record.lastExposedAt, null);
   assert.ok(Date.parse(record.createdAt) > 0);
 });
 
@@ -353,6 +357,76 @@ test('markUsed: 未知 id 不报错', () => {
   assert.equal(store.markUsed(['mem_nope'], { workspace: WS_A }).ok, true);
 });
 
+test('markExposed: 只记曝光，不计入 useCount / lastUsedAt', () => {
+  const r = store.upsert({ title: '只被注入过' }, { workspace: WS_A }).record;
+  store.markExposed([r.id], { workspace: WS_A });
+  store.markExposed([r.id], { workspace: WS_A });
+  const after = store.get(r.id, { workspace: WS_A });
+  assert.equal(after.exposedCount, 2);
+  assert.ok(after.lastExposedAt);
+  assert.equal(after.useCount, 0);
+  assert.equal(after.lastUsedAt, null);
+  assert.equal(after.openedCount, 0);
+  assert.equal(after.citedCount, 0);
+});
+
+test('markOpened / markCited: 分开计数，并共同计入 useCount', () => {
+  const r = store.upsert({ title: '被打开又被引用' }, { workspace: WS_A }).record;
+  store.markOpened([r.id], { workspace: WS_A });
+  store.markCited([r.id], { workspace: WS_A });
+  const after = store.get(r.id, { workspace: WS_A });
+  assert.equal(after.openedCount, 1);
+  assert.equal(after.citedCount, 1);
+  assert.equal(after.useCount, 2);
+  assert.ok(after.lastUsedAt);
+});
+
+test('markCitations: 只记录文本里真实存在的 id', () => {
+  const hit = store.upsert({ title: '会被引用的记忆' }, { workspace: WS_A }).record;
+  const miss = store.upsert({ title: '没被引用的记忆' }, { workspace: WS_A }).record;
+  const result = store.markCitations(`参考 ${hit.id}，以及并不存在的 mem_missing_000`, { workspace: WS_A });
+  assert.equal(result.affected, 1);
+  assert.equal(store.get(hit.id, { workspace: WS_A }).citedCount, 1);
+  assert.equal(store.get(miss.id, { workspace: WS_A }).citedCount, 0);
+});
+
+test('health: 列出多次曝光但从未使用的条目', () => {
+  const r = store.upsert({ title: '曝光很多次没人用' }, { workspace: WS_A }).record;
+  for (let i = 0; i < 3; i += 1) store.markExposed([r.id], { workspace: WS_A });
+  const before = store.health({ workspace: WS_A });
+  assert.ok(before.exposedButUnused.includes(r.id));
+  store.markOpened([r.id], { workspace: WS_A });
+  const after = store.health({ workspace: WS_A });
+  assert.ok(!after.exposedButUnused.includes(r.id));
+});
+
+test('rankRecords: 曝光不提升排序，打开才提升', () => {
+  const at = new Date().toISOString();
+  const base = {
+    category: 'fact',
+    content: 'alpha beta gamma',
+    tags: [],
+    keywords: [],
+    related: [],
+    files: [],
+    confidence: 1,
+    quality: 100,
+    pinned: false,
+    archived: false,
+    status: 'active',
+    createdAt: at,
+    updatedAt: at,
+  };
+  const a = { ...base, id: 'mem_a', title: 'alpha' };
+  const b = { ...base, id: 'mem_b', title: 'alpha' };
+  const scoreOf = (records) => rankRecords(records, { query: 'alpha', limit: 2 })[0].score;
+  const baseline = scoreOf([a, b]);
+  const exposed = { ...a, exposedCount: 10 };
+  assert.ok(Math.abs(scoreOf([exposed, b]) - baseline) < 1e-6, '曝光次数不该改变排序分数');
+  const opened = { ...a, openedCount: 2, useCount: 2 };
+  assert.ok(scoreOf([opened, b]) > baseline, '显式打开应提升排序分数');
+});
+
 /* ---------------- update / remove / bulk ---------------- */
 
 test('update: 未知 id 返回 not_found', () => {
@@ -427,6 +501,24 @@ test('export/import: 导出再导入到另一工作区', () => {
   assert.equal(res.ok, true);
   assert.ok(res.added > 0);
   assert.ok(store.list({ workspace: wsC, includeGlobal: false }).total > 0);
+});
+
+test('export/import: 曝光、打开、引用计数随记录保留', () => {
+  const r = store.upsert({ title: '计数随导出保留' }, { workspace: WS_A }).record;
+  store.markExposed([r.id], { workspace: WS_A });
+  store.markOpened([r.id], { workspace: WS_A });
+  store.markCited([r.id], { workspace: WS_A });
+  const wsE = path.join(tmp, 'epsilon');
+  store.import(store.export({ workspace: WS_A }), { workspace: wsE });
+  const imported = store
+    .list({ workspace: wsE, includeGlobal: false })
+    .records.find((item) => item.title === '计数随导出保留');
+  assert.ok(imported, '导入后应找到记录');
+  assert.equal(imported.exposedCount, 1);
+  assert.equal(imported.openedCount, 1);
+  assert.equal(imported.citedCount, 1);
+  assert.equal(imported.useCount, 2);
+  assert.ok(imported.lastExposedAt);
 });
 
 test('import: mode=replace 清空后写入', () => {
@@ -857,6 +949,48 @@ test('portrait: 保存与读取——版本 +1、正本同步、persistent=true'
   assert.equal(back.sections.find((x) => x.key === 'recent').text, '');
 });
 
+test('portrait: evidence 与 sectionMeta 落库，历史快照保留证据', () => {
+  const s = iso('portrait-evidence');
+  const ws = makeWorkspace('v04-portrait-evidence');
+  s.savePortrait(ws, {
+    sections: [
+      { key: 'background', text: '有证据的背景。' },
+      { key: 'focus', text: '没有证据的关注。' },
+    ],
+    evidence: { background: ['mem_a', 'journal:2026-10-20'] },
+  });
+  const back = s.portrait(ws);
+  assert.deepEqual(back.evidence.background, ['mem_a', 'journal:2026-10-20']);
+  assert.equal(back.sectionMeta.background.evidenceCount, 2);
+  assert.equal(back.sectionMeta.background.untraced, false);
+  assert.equal(back.sectionMeta.focus.untraced, true);
+  const info = s.portraitInfo(ws);
+  const md = fs.readFileSync(info.mdFile, 'utf8');
+  assert.match(md, /mem_a/, '正本里应能看到参考');
+});
+
+test('portrait: 手工保存——正文没变的段沿用证据，改过的段清空', () => {
+  const s = iso('portrait-evidence-merge');
+  const ws = makeWorkspace('v04-portrait-evidence-merge');
+  s.savePortrait(ws, {
+    sections: [
+      { key: 'background', text: '背景一。' },
+      { key: 'focus', text: '关注一。' },
+    ],
+    evidence: { background: ['mem_a'], focus: ['mem_b'] },
+  });
+  s.savePortrait(ws, {
+    sections: [
+      { key: 'background', text: '背景一。' },
+      { key: 'focus', text: '关注改了。' },
+    ],
+  });
+  const back = s.portrait(ws);
+  assert.deepEqual(back.evidence.background, ['mem_a'], '没改的段应沿用证据');
+  assert.equal(back.evidence.focus, undefined, '改过的段应清空证据');
+  assert.equal(back.sectionMeta.focus.untraced, true);
+});
+
 test('portrait: PORTRAIT.md 正本生成，含标题与段头', () => {
   const s = iso('portrait-md');
   const ws = makeWorkspace('v04-portrait-md');
@@ -929,6 +1063,51 @@ test('portrait: portraitInfo 报告路径且不读内容', () => {
   assert.ok(info.file.endsWith('portrait.json'));
   assert.ok(info.mdFile.endsWith('PORTRAIT.md'));
   assert.ok(info.historyDir.endsWith('portrait.history'));
+});
+
+test('portrait draft: evidence 随草稿存取', () => {
+  const s = iso('portrait-draft-evidence');
+  const ws = makeWorkspace('v05-portrait-draft-evidence');
+  s.portraitDraftWrite(ws, {
+    sections: [{ key: 'background', text: '草稿背景。' }],
+    evidence: { background: ['mem_z'] },
+  });
+  const draft = s.portraitDraftRead(ws);
+  assert.deepEqual(draft.evidence.background, ['mem_z']);
+  assert.equal(draft.sectionMeta.background.evidenceCount, 1);
+});
+
+test('injection 审计：记录正文与 hash，倒序读回，只留最近 500 条', () => {
+  const s = iso('injection-log');
+  const ws = makeWorkspace('v06-injection-log');
+  const one = s.injectionLogAppend(ws, {
+    sessionId: 's1',
+    turn: 2,
+    kind: 'briefing',
+    mode: 'index',
+    ids: ['mem_a', 'mem_b'],
+    text: '真正进 prompt 的字节',
+    dropped: [{ id: 'mem_c', title: '被挤掉' }],
+  });
+  assert.equal(one.ok, true);
+  assert.equal(one.entry.hash.length, 16);
+  assert.equal(one.entry.chars, '真正进 prompt 的字节'.length);
+
+  const rows = s.injectionLogRead(ws, { limit: 10 });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].kind, 'briefing');
+  assert.equal(rows[0].text, '真正进 prompt 的字节');
+  assert.deepEqual(rows[0].ids, ['mem_a', 'mem_b']);
+  assert.equal(rows[0].dropped.length, 1);
+
+  s.injectionLogAppend(ws, { kind: 'turn-recall', text: '尾部注入' });
+  const recalls = s.injectionLogRead(ws, { kind: 'turn-recall' });
+  assert.equal(recalls.length, 1);
+  assert.equal(recalls[0].text, '尾部注入');
+
+  for (let i = 0; i < 520; i += 1) s.injectionLogAppend(ws, { kind: 'briefing', text: `x${i}` });
+  const all = s.injectionLogRead(ws, { limit: 1000 });
+  assert.equal(all.length, 500, '只留最近 500 条');
 });
 
 /* ---------------- 日志层（journal）与重写稿（draft） ---------------- */

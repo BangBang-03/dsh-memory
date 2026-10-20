@@ -347,11 +347,14 @@ test('parseMemoryFile：Qoder 文件名参与标题兜底', () => {
   assert.equal(records[0].title, '用户与交付期望');
 });
 
-test('memorySourceSpecs：工作区两个 + 用户级两个', () => {
+test('memorySourceSpecs：工作区两个 + 用户级五个（WorkBuddy / Qoder / Claude / Codex / Windsurf）', () => {
   const specs = memorySourceSpecs({ workspace, home });
   assert.deepEqual(specs.map((s) => s.id).sort(), [
     'dsh-memory-mirror',
+    'user-claude',
+    'user-codex',
     'user-qoder',
+    'user-windsurf',
     'user-workbuddy',
     'workspace-workbuddy',
   ]);
@@ -359,9 +362,41 @@ test('memorySourceSpecs：工作区两个 + 用户级两个', () => {
   assert.equal(specs.find((s) => s.id === 'workspace-workbuddy').scope, 'workspace');
 });
 
-test('memorySourceSpecs：没有工作区时只剩用户级', () => {
+test('scanMemorySources：Codex 记忆目录被扫到并可解析', () => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-home-'));
+  const dir = path.join(fakeHome, '.codex', 'memories');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'MEMORY.md'), '# Codex 记忆\n\n- **构建约定** — 全量断言要绿\n', 'utf8');
+  const { sources } = scanMemorySources({ workspace: '', home: fakeHome });
+  const codex = sources.find((source) => source.id === 'user-codex');
+  assert.equal(codex.exists, true);
+  assert.equal(codex.files.length, 1);
+  assert.ok(codex.files[0].records >= 1, '应解析出至少一条记录');
+  fs.rmSync(fakeHome, { recursive: true, force: true });
+});
+
+test('scanMemorySources：Claude Code 递归 memory/ 子目录，且剔除索引页', () => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-home-'));
+  const memDir = path.join(fakeHome, '.claude', 'projects', 'some-slug', 'memory');
+  fs.mkdirSync(memDir, { recursive: true });
+  fs.writeFileSync(path.join(memDir, 'MEMORY.md'), '- [索引](a.md) — 索引页\n', 'utf8');
+  fs.writeFileSync(path.join(memDir, 'topic.md'), '# 主题记忆\n\n真实内容在这里。\n', 'utf8');
+  const { sources } = scanMemorySources({ workspace: '', home: fakeHome });
+  const claude = sources.find((source) => source.id === 'user-claude');
+  assert.equal(claude.exists, true);
+  assert.deepEqual(claude.files.map((file) => file.name), ['topic.md'], '索引页应被剔除');
+  fs.rmSync(fakeHome, { recursive: true, force: true });
+});
+
+test('memorySourceSpecs：没有工作区时只剩用户级（五个来源）', () => {
   const specs = memorySourceSpecs({ workspace: '', home });
-  assert.deepEqual(specs.map((s) => s.id), ['user-workbuddy', 'user-qoder']);
+  assert.deepEqual(specs.map((s) => s.id), [
+    'user-workbuddy',
+    'user-qoder',
+    'user-claude',
+    'user-codex',
+    'user-windsurf',
+  ]);
 });
 
 test('scanMemorySources：列出文件、格式与条数预览', () => {
@@ -389,7 +424,7 @@ test('scanMemorySources：不存在的工作区镜像报告 exists=false 而不�
 
 test('scanMemorySources：空的 home 也不抛错', () => {
   const { sources } = scanMemorySources({ workspace: '', home: path.join(tmp, 'nope') });
-  assert.equal(sources.length, 2);
+  assert.equal(sources.length, 5);
   for (const source of sources) {
     assert.equal(source.exists, false);
     assert.deepEqual(source.files, []);

@@ -12,6 +12,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 const suites = [
   ['store', '存储层：工作区分库、去重合并、检索、镜像、导入导出'],
+  ['retrieval', '检索层：BM25F、短语、related 一跳、评测基线'],
+  ['security', '写入安全：密钥脱敏、注入检测、trust 分级与隔离'],
   ['portrait', '画像层：段落模型、Markdown 渲染与解析、预算截断与注入'],
   ['markdown', '既有记忆解析：WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、本机扫描'],
   ['distill', '提炼层：对话摘录、模型输出解析、触发条件'],

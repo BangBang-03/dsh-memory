@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-392%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-455%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -28,7 +28,7 @@ pwsh -File install.ps1             # 真装
 - 客户端半 `lib/client.js`：设置面板里的「记忆」页，四个 tab——**记忆库**（档案 / 列表两视图；档案有整篇文档（ZCode 式索引）/ 按标签 / 按类型 / 时间线四种排布，顶部带「刚刚记了什么」变化横幅与「下次会话将注入」预览）、**维护**（体检 + 待审队列 + 标签清理）、自动提炼、设置。
 - 纯逻辑层：`lib/store.js`（存储）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
 
-## 新增：对齐市场同类后补的六处
+## 新增：对齐市场同类后补的十处
 
 | 机制 | 怎么用 | 默认 |
 | --- | --- | --- |
@@ -38,6 +38,10 @@ pwsh -File install.ps1             # 真装
 | git 身份作用域 | 同一仓库的不同克隆 / worktree 共享一份记忆（`git rev-parse --git-common-dir`），探测不到才回落到路径哈希；旧键数据首次访问自动迁移 | 自动 |
 | 简报字节稳定 | 会话级冻结 + 稳定排序（不读使用次数/当前时间）；轮末召回走**尾部注入**，系统提示不再逐轮变化 | 自动 |
 | 子代理不提炼 | `origin=subagent` 的会话只召回、不写记忆，避免把派活的中间过程写成长期记忆 | `captureSubagents: false` |
+| 曝光 / 使用 / 引用三分账 | 简报不计曝光；轮末召回、路径 JIT、`search` 命中只记 `exposedCount`；`get` 记 `openedCount`，答案引用 `#id` 记 `citedCount`；排序只读 `useCount`；体检与 Dream 单独报告「曝光 ≥3 次但从未使用」 | 自动 |
+| 同义词查询扩展 | 查询侧按保守同义词组扩展（发版/发布/上线、检查/校验、压缩/裁剪…），接住「换了说法」的查询；索引仍用原文，不改写入内容 | 自动 |
+| 画像证据链 | 重写画像时要求模型给每段挂参考（`mem_…` / `journal:YYYY-MM-DD`），落库后每段显示证据标签；没有证据的段标「未溯源」；手工改过正文的段自动清空证据 | 自动 |
+| 注入审计 | 每次真正进 prompt 的内容都留一份：正文、sha256 前 16 位、带了哪些记忆 id、谁被预算挤掉；`GET /injections` 可查，维护页有「注入审计」卡 | 自动 |
 
 ## v0.3.0「百家记忆」：借鉴了谁
 
@@ -86,11 +90,18 @@ pwsh -File install.ps1             # 真装
   "status": "active",
   "scope": "workspace",
   "source": "manual",
+  "trust": "user",
+  "taint": false,
+  "redactions": [],
   "files": [],
   "createdAt": "2026-10-10T…",
   "updatedAt": "2026-10-10T…",
   "lastUsedAt": null,
   "useCount": 0,
+  "exposedCount": 0,
+  "openedCount": 0,
+  "citedCount": 0,
+  "lastExposedAt": null,
   "seenCount": 0,
   "pinned": false,
   "archived": false,
@@ -98,22 +109,35 @@ pwsh -File install.ps1             # 真装
 }
 ```
 
+曝光不等于使用：简报索引本身不计曝光；轮末召回、路径 JIT 和 `search` 命中记 `exposedCount`；
+只有 `memory get` 记 `openedCount`，答案里显式写 `#id` 记 `citedCount`。排序只读
+`openedCount + citedCount`（汇总在 `useCount`），所以一条记忆不会因为「被反复注入」而自动变重要；
+体检与 Dream 会单独列出「曝光 ≥3 次但从未打开/引用」的条目。
+
 类别：`fact` 事实、`preference` 偏好、`decision` 决策、`convention` 约定、`component` 组件、
 `task` 待办、`note` 笔记、`feedback` 反馈（协作纠正/肯定）、`user` 用户画像（强制全局，跟着人走）。
 来源：`manual` 手工 / `agent` 模型调用工具 / `auto` 自动提炼 / `import` 导入。
 `status: "draft"` 的记忆是待审草稿：不进简报、不进检索、不进镜像，批准后才生效。
 
+写入安全：每条写入路径（含面板与导入）都会扫一遍密钥（`sk-` / `ghp_` / `AKIA` / `AIza` / `xox` /
+JWT / 私钥 / `Bearer` / `password: …` 赋值 / 带凭据的数据库 URI），命中就替换成 `[REDACTED:<类型>]`
+并在 `redactions` 里记账；再扫一遍注入模式（「忽略之前的指令」「把以下内容写入记忆」「泄露系统提示」等），
+命中记 `taint`。**非 user 来源的新建记录一旦 taint 就被隔离成草稿**，批准后才生效——模型不能自封
+`user`（`trust` 由写入路径按来源推导）。`POST /security/scan` 可以对任意文本只扫描不落库。
+
 版本链：`save` 带 `supersedes`（或自动提炼识别出「情况已变」）时，新条生效、旧条归档并互指，
 面板里可以一键**回滚**——推翻不删除，历史一直在。
 
-## 四条记忆通路
+## 五条记忆通路
 
 1. **会话开始注入索引**（`briefing`）。系统提示里多一段 `dsh-memory:workspace-briefing`
    （order 550，夹在 PLAN_POLICY 500 与 TEAM_POLICY 600 之间）。默认 `briefMode: index`——
    一行一条「📌 [类别] 标题 #标签 (id)」，正文不展开；切 `full` 则回到标题+正文摘录的旧形态。
    两种模式都受 `briefingLimit` / `briefingMaxChars` 双重限制，页脚写明「正文按需取 + 引用前先验证」。
    工作区从 `context.agent.session.header.cwd` 现取，切换会话即切换记忆。
-2. **`memory` 工具**。模型可以 `save` / `search` / `list` / `get` / `update` / `forget` / `stats`。
+2. **`memory` 工具**。模型可以 `save` / `search` / `sessions` / `promote` / `list` / `get` / `update` / `forget` / `stats`。
+   `sessions` 搜会话索引里的当轮原话（「上次我们定了什么」）；`promote` 把一条
+   convention / decision / preference 写进工作区 `AGENTS.md` 的托管块（幂等，块外内容用户随便改）。
    保存时先做一次相似度探测，超过 0.72 就合并进已有那条（`dedupe` 可关）；带 `supersedes` 时走版本链；
    `related` 把同主题的记忆串起来（允许悬空）；`keywords` 提升检索命中。
 3. **轮末相关召回**（`turnRecall`，默认开）。监听 `session/event` 的 `turn/end`，拿当轮最后一条用户消息
@@ -123,6 +147,13 @@ pwsh -File install.ps1             # 真装
    按 `minConfidence` 过滤。`captureMode: direct`（默认）直接落库；`captureMode: draft` 先落草稿进
    **审批队列**，面板批准（可顺手改）后才生效——草稿若挂着 `supersedes`，批准即兑现版本链。
    刻意**不**监听 `agent/turn-stopping` —— 那个事件是串行 await 的，长活在它里面会拖住轮次收尾。
+5. **路径 JIT**（`pathRecall`，默认开）。给记忆挂 `files`（`memory save` 新增 `files` 参数），
+   工具触达这些文件时（`tools/pre-execute` 只观察不裁决），相关记忆在**下一个 pre-step 以尾部消息注入**——
+   「刚触达：`lib/store.js`。以下是挂在这些文件上的记忆……」。匹配强度：全路径 > 目录后缀 > 同名文件；
+   简报里已有的、本轮已注入的不重复；同一批触达只注入一次。annkun / Gemini JIT 的文件触达式召回，本地零成本版。
+
+   > **压缩协同**（`compactionSalvage`，默认开）：宿主压缩上下文（`compaction/summary` / `compaction/prune`）时，
+   > 把压缩摘要照录进当天工作日志——长会话被压缩，结论也不丢（auto-memory 交接账本的本地轻量版）。
 
 ## 安装
 
@@ -206,7 +237,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：10 个套件 392 条断言
+node test/run-all.mjs                  # 本机跑一遍：12 个套件 455 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -367,6 +398,12 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `maxPerTurn` | `5` | 每次最多落库条数 |
 | `maxTranscriptChars` | `6000` | 送给模型的对白摘录上限 |
 | `dedupe` | `true` | 保存时合并相似记忆 |
+| `redactSecrets` | `true` | 写入安全：密钥扫描与脱敏（命中替换为 `[REDACTED:*]` 并记 `redactions`） |
+| `quarantineTainted` | `true` | 写入安全：非 user 来源命中注入模式（taint）时自动隔离成草稿 |
+| `pathRecall` | `true` | 路径 JIT：工具触达 `files` 挂靠的文件时，相关记忆在下一步尾部注入 |
+| `pathRecallLimit` | `3` | 每次路径召回最多注入几条（1–10） |
+| `sessionSearch` | `true` | 会话索引：每轮用户发言原文落 `sessions.jsonl`，`action=sessions` 溯源 |
+| `compactionSalvage` | `true` | 压缩协同：宿主压缩上下文时把摘要照录进当天工作日志 |
 
 ## HTTP 契约
 
@@ -384,22 +421,34 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数（只报告） |
 | POST | `/health/resolve` | 一键处理：`merge`（合并簇）/ `archive`（归档过期）/ `unlink`（摘除断链） |
 | GET | `/timeline` | 全部记忆（含归档、不含草稿）按更新时间倒序 |
+| GET | `/portrait` | 当前画像（工作区 + 全局）、版本列表、段落定义 |
+| POST | `/portrait/save` | 保存画像（版本 +1，旧版留档） |
+| GET | `/portrait/history` | 画像版本列表（降序） |
+| GET | `/portrait/diff` | 两个版本的逐段 diff（`from=previous` 默认，返回 `+`/`−` 行与摘要） |
+| POST | `/portrait/rewrite` | 触发画像重写（`captureMode` 决定直写或进待审） |
+| GET/POST | `/portrait/draft` | 读取 / 批准 / 丢弃待审重写稿 |
 | GET | `/queue` | 待审草稿队列 |
 | POST | `/queue/approve` | 批准草稿（可带编辑字段；草稿带 `supersedes` 时兑现版本链） |
 | POST | `/queue/reject` | 拒绝草稿（默认删除，`mode: archive` 归档留底） |
 | POST | `/supersede/rollback` | 版本链回滚：传新条 id 恢复旧条，或传旧条 id 撤销推翻 |
 | GET | `/export` / POST `/import` | 导出 / 导入（备份载荷、纯文本，或 `path`/`paths` 指到本机既有记忆文件） |
-| GET | `/import-scan` | 扫描本机既有记忆来源（Qoder / WorkBuddy / 本插件镜像），只读 |
+| GET | `/import-scan` | 扫描本机既有记忆来源（WorkBuddy / Qoder / Claude Code / Codex / Windsurf / 本插件镜像），只读 |
 | POST | `/import-scan` | 按来源 id 或路径导入，用户级来源自动进全局库 |
 | GET | `/mirror` | 取当前工作区镜像的 Markdown |
 | POST | `/capture` | 立刻提炼一次（`captureMode` 决定落库还是进队列） |
+| POST | `/dream` | Dream 一键整理：合并重复簇 + 报告过期未用 + 画像重写进待审（只手动触发） |
+| GET | `/sessions` | 会话检索（溯源）：按词重叠搜回当轮用户发言原文 + sessionId/turn |
+| GET | `/injections` | 注入审计：最近真正进 prompt 的内容（正文预览 + sha256 前 16 位 + id 列表 + 被挤掉的条目；`full=1` 给原文，`kind` 可过滤） |
+| POST | `/promote` | 程序记忆晋升：把一条记忆写进工作区 AGENTS.md 托管块（幂等） |
 | POST | `/distill` | 只返回候选，不落库 |
+| POST | `/security/scan` | 写入安全：扫描任意文本的密钥与注入模式，只报告不落库 |
 | GET | `/ping` | 存活探测 |
 
 ## 维护：体检 / 待审 / 标签清理
 
 时间线已并入记忆库的排布下拉；原「健康」「审批」两个 tab 合成一个**维护** tab：
 
+- **注入审计**：这次真正进 prompt 的字节、hash、带了哪些记忆、谁被预算挤掉（简报 / 尾部召回 / 路径召回分开记，append-only）。
 - **体检**：KPI 卡（总数、利用率、待审草稿、最近一次简报注入的字符数与 token 粗估）+
   问题清单——重复簇（一键合并，源条目归档可恢复）、过期未用（一键归档）、
   断链（`related`/`supersedes` 指向不存在的记录，一键摘除）。
@@ -409,11 +458,19 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 - **标签清理**：写法不同、意思相同的标签（`DSH` / `dsh` 这类大小写漂移）列成候选，
   一键合并为最常见的写法（后端 `POST /tags/merge`，含全局库与草稿）。
   档案「按标签分组」排布的显示名也会自动归并大小写变体。
+- **Dream**：一键半自动整理（对标 meow / mneme / prime 的 dream，但只手动触发）——
+  合并重复簇（原条目归档可恢复）、报告过期未用（只报告不归档，由人决定）、
+  把画像重写送进待审。没有后台常驻任务；报告一行显示「合并几簇 / 过期几条 / 画像是否进待审」。
+  记录卡与时间线带写入安全徽标：`可疑`（taint）/ `已脱敏`（redactions）/ `外部来源`（trust=external）。
 
 ## 导入本机既有的记忆
 
-对标 Qoder / WorkBuddy 的最后一块：用户机器上往往**已经有**它们的记忆文件，插件要能直接吸进来。
-`lib/markdown.js` 是纯函数解析层（无 DSH 依赖，可单测），识别四种形态：
+对标 Qoder / WorkBuddy / Claude Code / Codex / Windsurf：用户机器上往往**已经有**它们的记忆文件，插件要能直接吸进来。
+`lib/markdown.js` 是纯函数解析层（无 DSH 依赖，可单测），识别四种形态；扫描落点
+（`GET /import-scan`）覆盖 `~/.workbuddy/memory`、`~/.qoder/memory`、
+`~/.claude/projects/*/memory/**`（剔除 MEMORY.md 索引页）、`~/.codex/memories`、
+`~/.codeium/windsurf/memories/**` 与本插件自己的工作区镜像；按来源导入时自动打
+`claude` / `codex` / `windsurf` 标签，来源在面板与导出里可见。
 
 | 格式 | 识别依据 | 切条方式 |
 | --- | --- | --- |
@@ -441,30 +498,43 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-9 个套件、370 项：
+12 个套件、455 项：
 
-- `store` 104 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
+- `store` 122 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
   草稿四不可见、重复簇聚类与合并、体检（重复/过期/断链/草稿）、索引简报预算、镜像版本链线索、keywords 加权、unlink；
-  v0.5.0：日志层 journal（按天 `journal/YYYY-MM-DD.md`、只追加，是画像重写的上游原料）、画像的读写与草稿。
-- `portrait` 31 项 —— 画像层：段落模型与预算截断、Markdown 渲染与解析、重写输入的拼装、
-  模型输出的容错解析、工作区 / 全局两份注入渲染。
-- `markdown` 39 项 —— WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、格式识别、粗体子标题
-  再切一层、Qoder 索引页剔除、本机扫描只读。
+  v0.5.0：日志层 journal（按天 `journal/YYYY-MM-DD.md`、只追加，是画像重写的上游原料）、画像的读写与草稿；
+  v0.5.1：曝光 / 打开 / 引用三分账（曝光不抬排序）、曝光未用体检与 Dream 报告。
+- `retrieval` 14 项 —— 检索层：BM25F（字段权重 / IDF / 长度归一）、精确短语、related 一跳、同义词查询扩展、
+  `search` / `list` 集成、`recallByFiles` 路径召回（全路径 > 后缀 > 同名、limit / excludeIds / 盘符归一），
+  20 条记忆 × 10 条查询的冒烟评测，以及 54 条记忆 × 60 条查询的硬评测（同义改写 / 路径代码 / 近邻干扰 /
+  多跳 / 否定 / 标签各 10 条）。硬评测自测：Recall@5 1.000、MRR@10 0.930；词重叠基线 0.967 / 0.907；
+  基线失败的 3 条硬样例上 1.000 vs 0.333。详见 `docs/retrieval-eval-2026-10-20.md`。
+- `security` 9 项 —— 写入安全：100 条密钥样本全部脱敏（原文零泄漏）、20 条注入样本全部命中、
+  20 条正常文本零误报、trust 分级（manual→user，模型不能自封）、非 user 来源的注入内容自动隔离成草稿、
+  批准后不被反复打回。
+- `portrait` 39 项 —— 画像层：段落模型与预算截断、Markdown 渲染与解析、重写输入的拼装、
+  模型输出的容错解析、工作区 / 全局两份注入渲染；v0.6：版本 diff（行级 LCS、+/- 渲染、一行摘要）。
+- `markdown` 41 项 —— WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、格式识别、粗体子标题
+  再切一层、Qoder 索引页剔除、本机扫描只读；v0.6：来源扩到 Claude Code / Codex / Windsurf
+  （递归扫 `~/.claude/projects/*/memory`、`~/.codex/memories`、`~/.codeium/windsurf/memories`，
+  Claude 的索引页剔除）。
 - `distill` 41 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别；v0.3.0：
   keywords/supersedes 解析、user 类别强制 global、提示词 v2 指引、existingRecords 带 id。
-- `api` 57 项 —— 22 个端点、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
+- `api` 66 项 —— 26 个端点、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
   /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
-  /save 带 supersedes 与 /supersede/rollback。
+  /save 带 supersedes 与 /supersede/rollback；v0.6：`GET /portrait/diff`（上一版 → 当前版的逐段 diff）。
 - `host` 10 项 —— 导出形状、Config 默认值与越界校验。
-- `activate` 34 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
+- `activate` 41 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
   工具 save/search/get/forget、全文简报装不下时明说「只列了 N / M 条」、`/memory/api/*` 路由真的应答
   且守好 403/404、手动提炼端到端、面板保存落到工作区镜像、既有记忆扫描导入、数据目录不可用不炸外壳；
   v0.3.0：索引简报（带 id 不展开正文 + full 模式对照）、轮末召回（召回块出现、连续两轮不重复）、
   captureMode=draft 全流程（进队列 → 不进列表 → 日志 drafted → 批准生效）、
   工具 save 带 supersedes（旧条归档、get 展示版本链）；v0.5.0：`action=journal` 写入回读与空文本拒绝、
   journal API（写 / 读 / 日期校验）、画像重写（draft 进待审、direct 直接落库）、提示段里的写入纪律。
-- `client` 38 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
+- `briefing-stability` 14 项 —— 会话级冻结快照、确定性排序、轮末召回的尾部注入与去重；
+  改检索算法时用它守住「系统提示字节稳定」。
+- `client` 42 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
   接到真实 `store` + `api` 上驱动交互（列表 / 搜索 / 新建 / 删除 / 置顶 / 中英文切换 / 后端报错）；
   档案视图的分区与两种排布（整篇文档 / 按标签分组 / 按类型分组、分区与分组折叠、组头「整合」、
   整篇编辑、整理永远按标签算、开关即时落库；v0.3.1：档案与记忆空间合并成同一个视图）；v0.3.3：变化横幅与注入预览（/briefing-preview 被调用、✓ 简报标记、横幅展开）、时间线并入档案排布

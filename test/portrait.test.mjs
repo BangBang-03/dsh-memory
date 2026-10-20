@@ -17,6 +17,11 @@ const {
   renderPortraitInjection,
   buildRewriteInput,
   parseRewriteResponse,
+  normalizePortraitEvidence,
+  portraitSectionMeta,
+  diffPortraitSections,
+  renderPortraitDiff,
+  portraitChangeLine,
 } = await import('../lib/portrait.js');
 
 let passed = 0;
@@ -313,6 +318,117 @@ test('rewrite: parse 按 scope 归一（全局版段标题为「个人背景」�
   const parsed = parseRewriteResponse('{"sections":[{"key":"preference","text":"P"}]}', { scope: 'global' });
   assert.equal(parsed.ok, true);
   assert.equal(parsed.sections.find((s) => s.key === 'preference').title, '个人背景');
+});
+
+/* ---------------- 画像 2.0：证据链 ---------------- */
+
+test('evidence: 只保留四段、去重、裁剪，并生成 sectionMeta', () => {
+  const evidence = normalizePortraitEvidence({
+    background: ['mem_a', 'mem_a', ' journal:2026-10-20 ', 42, ''],
+    focus: ['session:s1'],
+    bogus: ['mem_x'],
+  });
+  assert.deepEqual(evidence.background, ['mem_a', 'journal:2026-10-20', '42']);
+  assert.deepEqual(evidence.focus, ['session:s1']);
+  assert.equal(evidence.bogus, undefined);
+  const meta = portraitSectionMeta(evidence);
+  assert.equal(meta.background.evidenceCount, 3);
+  assert.equal(meta.background.untraced, false);
+  assert.equal(meta.preference.untraced, true);
+});
+
+test('rewrite: 解析 evidence 与 sectionMeta；缺省即未溯源', () => {
+  const parsed = parseRewriteResponse(
+    JSON.stringify({
+      sections: [
+        { key: 'background', text: '有证据的背景。' },
+        { key: 'focus', text: '没有证据的关注。' },
+      ],
+      evidence: { background: ['mem_a', 'journal:2026-10-20'], focus: [] },
+    }),
+  );
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.evidence.background, ['mem_a', 'journal:2026-10-20']);
+  assert.equal(parsed.sectionMeta.background.evidenceCount, 2);
+  assert.equal(parsed.sectionMeta.focus.untraced, true);
+
+  const bare = parseRewriteResponse(
+    JSON.stringify({ sections: [{ key: 'background', text: '没有 evidence 字段。' }] }),
+  );
+  assert.equal(bare.ok, true);
+  assert.equal(bare.sectionMeta.background.untraced, true);
+  assert.deepEqual(bare.evidence, {});
+});
+
+test('portrait markdown: 参考行可渲染并解析回 evidence', () => {
+  const md = renderPortraitMarkdown({
+    scope: 'workspace',
+    version: 1,
+    sections: FOUR,
+    evidence: { background: ['mem_a', 'journal:2026-10-20'] },
+  });
+  assert.match(md, />\s*参考[:：]/);
+  assert.match(md, /mem_a/);
+  const parsed = parsePortraitMarkdown(md);
+  assert.deepEqual(parsed.evidence.background, ['mem_a', 'journal:2026-10-20']);
+  assert.ok(!parsed.sections.find((s) => s.key === 'background').text.includes('参考'));
+});
+
+test('rewrite prompt: 带 memory id、journal 日期与 evidence 输出约定', () => {
+  const prompt = buildRewriteInput({
+    scope: 'workspace',
+    records: [{ id: 'mem_a', title: '样例记忆', category: 'fact', updatedAt: '2026-10-20T00:00:00Z' }],
+    journal: [{ date: '2026-10-20', text: '今天的日志。' }],
+  });
+  assert.match(prompt, /id=mem_a/);
+  assert.match(prompt, /journal:YYYY-MM-DD/);
+  assert.match(prompt, /"evidence"/);
+});
+
+/* ---------------- 画像 2.0：版本 diff ---------------- */
+
+test('diff: 行级 added / removed 与摘要', () => {
+  const before = [
+    { key: 'background', text: '旧背景一\n旧背景二' },
+    { key: 'preference', text: '约定不变' },
+  ];
+  const after = [
+    { key: 'background', text: '旧背景一\n新背景三' },
+    { key: 'preference', text: '约定不变' },
+  ];
+  const diff = diffPortraitSections(before, after);
+  const background = diff.sections.find((s) => s.key === 'background');
+  assert.deepEqual(background.removed, ['旧背景二']);
+  assert.deepEqual(background.added, ['新背景三']);
+  assert.equal(background.changed, 2);
+  assert.equal(diff.changed.length, 1);
+  assert.match(diff.summary, /工作背景 \+1 −1/);
+});
+
+test('diff: 无变化时 changed 为空、摘要为「无变化」', () => {
+  const diff = diffPortraitSections(FOUR, FOUR);
+  assert.equal(diff.changed.length, 0);
+  assert.equal(diff.summary, '无变化');
+  assert.equal(portraitChangeLine(diff), '');
+});
+
+test('diff: 渲染带 + / - 行，默认跳过无变化段', () => {
+  const before = [{ key: 'focus', text: '旧关注' }];
+  const after = [{ key: 'focus', text: '新关注' }];
+  const md = renderPortraitDiff(diffPortraitSections(before, after));
+  assert.match(md, /\*\*当前关注\*\*（\+1 −1）/);
+  assert.match(md, /\+ 新关注/);
+  assert.match(md, /~~旧关注~~/);
+  assert.doesNotMatch(md, /协作约定/);
+});
+
+test('diff: 全局版用「个人背景」标题', () => {
+  const diff = diffPortraitSections(
+    [{ key: 'preference', text: '旧' }],
+    [{ key: 'preference', text: '新' }],
+    { scope: 'global' },
+  );
+  assert.equal(diff.sections.find((s) => s.key === 'preference').title, '个人背景');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
