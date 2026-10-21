@@ -1,0 +1,14 @@
+# docs
+
+设计文档与调研记录，不是发布合同——配置表、HTTP 契约以根 [README.md](../README.md) 为准。
+
+| 文档 | 内容 |
+| --- | --- |
+| `briefing-cache-safety.md` | 简报为什么必须字节稳定：会话级冻结、确定性排序与缓存命中率的代价 |
+| `retrieval-eval-2026-10-20.md` | 检索方案与 60 条评测的基线数字 |
+| `personal-memory-parity.md` | 与 WorkBuddy 个人记忆的能力差距 |
+| `market-scan-2026-10.md` | 市场同类插件扫描与插件自查 |
+| `dsh-memory-landscape-2026-10.md` | 同类产品全景 |
+| `competitive-delta-2026-10-20.md` | 头部产品近月新机制、可借鉴清单与优先级 |
+
+带日期的文档是当时的调研快照，数字与结论不随代码更新；引用前先对照当前实现与测试。
