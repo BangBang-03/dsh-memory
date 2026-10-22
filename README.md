@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-497%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-505%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -11,6 +11,12 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记
 记忆库（档案 / 列表）、时间线、健康体检、审批队列。
 
 **哪个 `dsh-memory` 是这个**：`BangBang-03/dsh-memory`（npm 名 `@bangbang-03/dsh-memory`）。市场目录里有十几个同名包，认作者与仓库。
+
+**它要什么权限**：只用 `fs-read` / `fs-write`（读你自己的记忆库）+ 本机回环 HTTP（`/memory/api`，只监听回环地址）。
+**不要 shell、不要环境变量、不启子进程、不发出站请求、不加载动态代码**；`dependencies` 为空，`lib/*.js` 只 import
+`node:*` 与相对路径——装上就是零依赖、零后台进程、零边际成本。
+市场目录（`awesome-dsh-plugin`，2026-10-22 快照：`memory` 分类 272 个插件）的能力审计里本插件 **0 条红线告警**；
+同期该分类下载量前 20 名里，**10 个要 shell、13 个要 env、3 个要动态代码、1 个被判「读凭据 + 有网络」**。
 
 三分钟装好（DSH ≥ 0.2.0-rc.2，web / 桌面）：
 
@@ -22,13 +28,24 @@ pwsh -File install.ps1             # 真装
 # 重启 DSH 桌面端
 ```
 
+不想 clone，用**版本无关**的 Release 资产（`/latest/` 天然跳过预发布，永远取最新正式版）：
+
+```powershell
+pwsh -File install.ps1 -FromRelease -Channel stable   # 脚本自己下 tarball 并解包到 ~/.dsh/plugins/dsh-memory
+# 或显式给 URL（同一个资产）：
+pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz
+```
+
+> 市场目录里的 install 命令是收录当天（2026-10-17）写死的 `v0.5.1` tarball，**不会随发版更新**。
+> 按目录那条命令装到的是旧版；以本节的 `/latest/` 写法或 `tools/status.mjs` 报的版本为准。
+
 公共 npm 源随 `v*` 标签自动发布（仓库需一次性配置 `NPM_TOKEN`，见 `.github/workflows/publish-npmjs.yml`）；配好之后也可以直接 `dsh plugin --profile web add @bangbang-03/dsh-memory`。
 
 - 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼。
-- 客户端半 `lib/client.js`：设置面板里的「记忆」页，四个 tab——**记忆库**（档案 / 列表两视图；档案有整篇文档（ZCode 式索引）/ 按标签 / 按类型 / 时间线四种排布，顶部带「刚刚记了什么」变化横幅与「下次会话将注入」预览）、**维护**（体检 + 待审队列 + 派生链 + 注入审计 + 复审队列 + 标签清理）、自动提炼、设置。
+- 客户端半 `lib/client.js`：设置面板里的「记忆」页，四个 tab——**记忆库**（档案 / 列表两视图；档案有整篇文档（ZCode 式索引）/ 按标签 / 按类型 / 时间线四种排布，顶部带「刚刚记了什么」变化横幅与「下次会话将注入」预览；库为空时换成「怎么开始」的引导卡）、**维护**（体检 + 待审队列 + 派生链 + 注入审计 + 复审队列 + 整库快照 + 标签清理）、自动提炼、设置。
 - 纯逻辑层：`lib/store.js`（存储）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
 
-## 新增：对齐市场同类后补的十二处
+## 新增：对齐市场同类后补的十四处
 
 | 机制 | 怎么用 | 默认 |
 | --- | --- | --- |
@@ -44,6 +61,8 @@ pwsh -File install.ps1             # 真装
 | 注入审计 | 每次真正进 prompt 的内容都留一份：正文、sha256 前 16 位、带了哪些记忆 id、谁被预算挤掉；`GET /injections` 可查，维护页有「注入审计」卡 | 自动 |
 | 跨层派生链 | 记忆 → 画像 → AGENTS.md 每一层都记下它是从哪些源、哪个版本抄来的（`derivations.json`）；源被删 / 被归档 / 被取代 / 被改写时，**这层派生自动标脏**并沿链向上传递；`GET /derivations` 可查，维护页有「派生链」卡 | 自动 |
 | 失效条件与复审 | 记忆可写 `falsifier`（什么情况出现就说明它不再成立，正文里的「失效条件：…」也会被识别）；带失效条件的记忆自动排期复审，到期进复审队列；`GET /reviews` 与 `action=review` 处理 | `falsifierReviewDays: 90` |
+| 整库快照（后悔药） | 每天第一次写入、以及每次 Dream 动手前，把整个库复制到 `<库根>/backups/<时间戳>-<原因>/`，轮转只留 7 份；`GET /backups` / `POST /backup` 或维护页「立即备份」。恢复 = 手工把某一份拷回库目录（面板**不会**自动覆盖当前数据）；只写库根，绝不碰工作区 | 自动 |
+| 空库引导 | 记忆库为空时，首屏给的是「怎么开始」而不是「这里空」：三条路径（对话里说「记住……」/ 一键开启自动提炼 / 扫别处的记忆）+ 三个按钮，其中「开启自动提炼」直接把 `autoCapture` 打开 | 自动 |
 
 ## v0.3.0「百家记忆」：借鉴了谁
 
@@ -69,6 +88,7 @@ pwsh -File install.ps1             # 真装
   workspaces/<目录名>-<hash>/derivations.json 跨层派生链（画像 / AGENTS.md 的源快照）
   workspaces/<目录名>-<hash>/journal/         每天一个只追加的工作日志
   workspaces/_global/memories.json            跨工作区共享的全局记忆
+  backups/<时间戳>-<原因>/                     整库快照（每天一次 + 每次 Dream 前；轮转 7 份）
 ```
 
 工作区键优先取 **git 身份**（`git rev-parse --git-common-dir` 的 realpath，同仓库不同克隆/worktree 共享），不是 git 仓库才回落到**规范化路径的哈希**——同名但不同位置的目录不会互相污染；旧路径键的数据第一次访问会自动搬到新键目录。
@@ -260,7 +280,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 497 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 505 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -476,10 +496,12 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/tags/merge` | 标签归并：把大小写等写法变体合并成目标写法（含全局库与草稿） |
 | POST | `/promote` | 程序记忆晋升：把一条记忆写进工作区 AGENTS.md 托管块（幂等）；带 `from=portrait` 则改写画像的某一段 |
 | POST | `/distill` | 只返回候选，不落库 |
+| GET | `/backups` | 整库快照清单（新的在前，带文件数与字节数）与备份目录路径；没有备份时返回空数组 |
+| POST | `/backup` | 立刻做一次整库快照（`reason` 可选）；返回快照名、文件数、字节数与轮转掉的旧快照 |
 | POST | `/security/scan` | 写入安全：扫描任意文本的密钥与注入模式，只报告不落库 |
 | GET | `/ping` | 存活探测 |
 
-## 维护：体检 / 派生链 / 复审 / 待审 / 标签清理
+## 维护：体检 / 派生链 / 复审 / 待审 / 整库快照 / 标签清理
 
 时间线已并入记忆库的排布下拉；原「健康」「审批」两个 tab 合成一个**维护** tab：
 
@@ -489,6 +511,9 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
   （画像的证据没了，从它抄进 AGENTS.md 的那几行也跟着标脏）。只报告，不自动改任何东西。
 - **复审队列**：带 `falsifier`（失效条件）的记忆到期后进这里，一行显示「到期时间 + 失效条件」，
   确认还成立就点「已复审」，到期时间按周期推后（默认 90 天，`falsifierReviewDays` 可调）。
+- **整库快照**：每天第一次写入、以及每次 Dream 动手前自动整库复制一份，轮转只留 7 份；
+  卡上显示真路径与每份的体积/文件数，点「立即备份」可当场再留一份。
+  恢复是手工作业：把某一份目录拷回库目录即可，**面板不会自动覆盖当前数据**。
 - **体检**：KPI 卡（总数、利用率、待审草稿、最近一次简报注入的字符数与 token 粗估）+
   问题清单——重复簇（一键合并，源条目归档可恢复）、过期未用（一键归档）、
   断链（`related`/`supersedes` 指向不存在的记录，一键摘除）。
@@ -541,7 +566,7 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、497 项：
+14 个套件、505 项：
 
 - `store` 122 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
@@ -600,10 +625,11 @@ npm test          # 或 node test/run-all.mjs
 
 ## 边界
 
-- **备份载荷只覆盖条目**：`GET /export` 的载荷只有 `records`（条目字段含 `falsifier` / `reviewAt` 都会
-  原样回灌），**画像、派生链、工作日志、注入审计都不在载荷里**。实测：恢复到一个空库后
-  `portrait()` 返回 null、派生链 0 条——换机之后需要重新写画像。要做整库快照需把
-  `portrait.json` / `derivations.json` / `journal/` 一起纳入载荷（尚未实现）。
+- **备份载荷只覆盖条目，整库快照才覆盖全部**：`GET /export` 的载荷只有 `records`（条目字段含
+  `falsifier` / `reviewAt` 都会原样回灌），**画像、派生链、工作日志、注入审计都不在载荷里**。实测：
+  恢复到一个空库后 `portrait()` 返回 null、派生链 0 条——换机之后需要重新写画像。
+  要连画像 / 派生链 / 日志一起搬，用 `<库根>/backups/` 里的整库快照（每天一次 + 每次 Dream 前，
+  轮转 7 份），把某一份目录整个拷回去即可；`/export` 仍然只是「条目级」导出。
 - **派生链只审源端，不审目标端**：它回答的是「这层派生所依据的记忆现在还成不成立」，
   不回答「AGENTS.md 里那几行还在不在」。手工把晋升行或整个托管块删掉，链上仍显示 `fresh`
   （已用脚本实测确认）。要做目标端完整性需要另加一步「块内容回读比对」，目前未实现。
@@ -639,3 +665,4 @@ npm test          # 或 node test/run-all.mjs
    `<工作区>/.dsh-memory/MEMORY.md`，`git diff` 里看得见，也能被 DSH 自己的文件工具读到。
 2. **记忆是补充，不是指令**——WorkBuddy 提示词里明确写了「工作区记忆不替代正常回复与交付物」，
    这里同样把注入内容框成「背景资料」，并给每条记忆标来源（`manual` / `auto` / `import`）。
+

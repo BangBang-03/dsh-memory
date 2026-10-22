@@ -898,6 +898,39 @@ await test('GET /portrait/diff：只有一版时明说 no_previous_version', asy
   assert.equal(res.body.reason, 'no_previous_version');
 });
 
+/* ---------------- 整库快照（后悔药） ---------------- */
+
+await test('POST /backup：建一份快照并回清单；GET /backups 读得到同一份', async () => {
+  const saved = await call('POST', '/save', {
+    body: { workspace: WS, title: '快照接口样本', content: '接口测试正文', category: 'fact', source: 'manual' },
+  });
+  assert.equal(saved.status, 200);
+
+  const res = await call('POST', '/backup', { body: { reason: 'manual' } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(typeof res.body.backup?.name, 'string');
+  assert.ok(res.body.backup.files >= 1, '快照应至少含一个文件');
+  assert.ok(Array.isArray(res.body.backups) && res.body.backups.length >= 1);
+
+  const list = await call('GET', '/backups');
+  assert.equal(list.status, 200);
+  assert.ok(
+    list.body.backups.some((item) => item.name === res.body.backup.name),
+    '清单里应有刚做的那份',
+  );
+  assert.equal(list.body.keep, 7);
+  assert.match(list.body.root, /backups$/);
+});
+
+await test('POST /dream：动手前自动留一份快照，报告里带名字', async () => {
+  const res = await call('POST', '/dream', { body: { workspace: WS } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(typeof res.body.backup?.name, 'string', 'Dream 报告应带备份名');
+  assert.match(res.body.backup.name, /-dream$/);
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 try {
   fs.rmSync(tmp, { recursive: true, force: true });

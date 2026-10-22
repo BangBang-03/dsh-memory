@@ -99,14 +99,16 @@ const api = createApi({
 
 /** 把浏览器的 fetch 直通到 api.handle。 */
 const fetchCalls = [];
+/* 客户端半在加载时就把 fetch 绑死了（new Function 的形参），所以换后端要换这个指针。 */
+let activeApi = api;
 async function fetchStub(target, init = {}) {
   const parsed = new URL(String(target));
   const query = {};
   for (const [key, value] of parsed.searchParams.entries()) query[key] = value;
   let body;
   if (typeof init.body === 'string' && init.body.length) body = JSON.parse(init.body);
-  fetchCalls.push({ method: init.method || 'GET', pathname: parsed.pathname });
-  const result = await api.handle({
+  fetchCalls.push({ method: init.method || 'GET', pathname: parsed.pathname, body });
+  const result = await activeApi.handle({
     method: init.method || 'GET',
     pathname: parsed.pathname,
     query,
@@ -1188,6 +1190,34 @@ await test('维护页：注入审计显示最近进 prompt 的字节与 hash', a
   );
 });
 
+await test('维护页：整库快照卡列出备份，点「立即备份」调 /backup', async () => {
+  fetchCalls.length = 0;
+  renderPage('zh');
+  await settle(8);
+  await clickTab('tabMaintain');
+  await settle(8);
+
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('backupTitle'))), '缺少整库快照卡');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/backups`),
+    '/backups 应被调用',
+  );
+
+  const btn = mini.findByText(view, makeT('zh')('backupRun'), 'button');
+  assert.ok(btn, '缺少「立即备份」按钮');
+  mini.click(btn);
+  await settle(14);
+
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/backup` && call.method === 'POST'),
+    '/backup 应被调用',
+  );
+  const backups = store.snapshots({ limit: 50 });
+  assert.ok(backups.length >= 1, '点完应该真的落了一份快照');
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('backupDone').slice(0, 4))), '应有备份完成提示');
+  assert.ok(text().includes(backups[0].name.slice(0, 10)), '清单应显示快照时间');
+});
+
 await test('画像卡：段落带证据标签，没有证据的段标「未溯源」', async () => {
   const version = (store.portrait(WS)?.version || 0) + 1;
   await api.handle({
@@ -1577,6 +1607,72 @@ await test('画像卡：「写进 AGENTS.md」按钮调用 /promote', async () =
   );
   const agents = fs.readFileSync(path.join(WS, 'AGENTS.md'), 'utf8');
   assert.match(agents, /客户端画像约定/, 'AGENTS.md 应写进画像那一段');
+});
+
+/* ------------------------------------------------------------------ *
+ * 空库引导：安装后第一屏看到的就是它
+ * ------------------------------------------------------------------ */
+
+/* 用一个全新的空库 + 空工作区渲染，避免动到前面那些种子里程碑。
+   autoCapture 默认关，所以这一屏如果不给「怎么开始」，用户装完只会看到一片空白。 */
+await test('空库首屏：引导卡 + 一键开启自动提炼（POST /settings）', async () => {
+  const emptyTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-firstrun-'));
+  const emptyWs = process.platform === 'win32' ? 'C:\\proj\\空库' : '/proj/empty';
+  const emptyStore = createMemoryStore({ dir: path.join(emptyTmp, 'storage'), mirror: false });
+  const emptySettingsValue = { enabled: true, briefing: true, autoCapture: false, mirror: false };
+  const emptyApi = createApi({
+    store: emptyStore,
+    settings: {
+      get: () => ({ ...emptySettingsValue }),
+      set(patch) {
+        Object.assign(emptySettingsValue, patch);
+        return { ...emptySettingsValue };
+      },
+    },
+    activeWorkspace: () => emptyWs,
+    listWorkspaces: () => [{ root: emptyWs, key: 'empty', count: 0, active: true }],
+    captures: () => [],
+    version: '0.1.0',
+    captureNow: async () => ({ ok: true, saved: 0 }),
+    distillNow: async () => ({ candidates: [] }),
+    rewriteNow: async () => ({ ok: true }),
+    approveDraft: () => ({ ok: false, error: 'no_draft' }),
+  });
+
+  const settingsBodies = [];
+  const callsStart = fetchCalls.length;
+  activeApi = emptyApi;
+
+  try {
+    renderPage('zh');
+    await settle(12);
+    const t = makeT('zh');
+    const body = text();
+    assert.match(body, new RegExp(escapeRe(t('firstRunTitle'))), '空库没有显示引导卡');
+    assert.match(body, new RegExp(escapeRe(t('firstRunStep1').slice(0, 10))), '引导卡缺少第一步');
+    assert.match(body, new RegExp(escapeRe(t('firstRunStep3').slice(0, 10))), '引导卡缺少导入那一步');
+
+    const autoBtn = mini.findByText(handle.tree, t('firstRunAuto'), 'button');
+    assert.ok(autoBtn, '引导卡缺少「开启自动提炼」按钮');
+    mini.click(autoBtn);
+    await settle(10);
+
+    settingsBodies.push(
+      ...fetchCalls
+        .slice(callsStart)
+        .filter((call) => call.pathname === `${API_PREFIX}/settings` && call.body)
+        .map((call) => call.body.settings || call.body),
+    );
+    assert.ok(
+      settingsBodies.some((patch) => patch.autoCapture === true),
+      '/settings 没有收到 autoCapture:true',
+    );
+    assert.equal(emptySettingsValue.autoCapture, true, '自动提炼没有被真的打开');
+    assert.doesNotMatch(text(), new RegExp(escapeRe(t('firstRunAuto'))), '开启后按钮应换成「已开启」');
+    assert.match(text(), new RegExp(escapeRe(t('firstRunAutoOn').slice(0, 8))), '开启后应显示已开启状态');
+  } finally {
+    activeApi = api;
+  }
 });
 
 /* ------------------------------------------------------------------ *

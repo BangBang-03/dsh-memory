@@ -1336,6 +1336,58 @@ test('来源与理由：reason/evidence 跨读写保留，supersede 也带过去
   assert.equal(store.get(first.id, { workspace: ws }).archived, true);
 });
 
+/* ---------------- 整库快照（后悔药） ---------------- */
+
+test('整库快照：只写库根下的 backups/，不套娃、不碰工作区', () => {
+  const snapDir = path.join(tmp, 'snap-store');
+  const s = createMemoryStore({ dir: snapDir, mirror: true });
+  fs.mkdirSync(WS_A, { recursive: true });
+  s.upsert({ title: '快照样本', content: '正文' }, { workspace: WS_A });
+  const result = s.snapshotLibrary({ reason: 'manual' });
+  assert.equal(result.ok, true, `快照失败：${result.error}`);
+  assert.ok(result.files >= 1, '快照里应该至少有一个文件');
+  assert.match(result.name, /-manual$/);
+  assert.equal(fs.existsSync(path.join(result.dir, 'backups')), false, '快照里不能再套一层 backups');
+  assert.ok(fs.existsSync(path.join(result.dir, 'workspaces')), '快照缺 workspaces/');
+  assert.ok(fs.readdirSync(WS_A).includes('.dsh-memory'), '快照不该动工作区（镜像仍在）');
+  const names = s.snapshots().map((item) => item.name);
+  assert.ok(names.includes(result.name), '清单里应该有刚做的那一份');
+  assert.ok(
+    names.some((name) => name.endsWith('-daily')),
+    '第一次写入时应该已经自动留了一份日快照',
+  );
+});
+
+test('整库快照：每天第一次写入自动留一份，同一天不重复', () => {
+  const s = createMemoryStore({ dir: path.join(tmp, 'snap-daily') });
+  fs.mkdirSync(WS_B, { recursive: true });
+  s.upsert({ title: 'a', content: 'x' }, { workspace: WS_B });
+  const first = s.snapshots();
+  assert.equal(first.length, 1, `期望 1 份日快照，实际 ${first.length}`);
+  assert.match(first[0].name, /-daily$/);
+  s.upsert({ title: 'b', content: 'y' }, { workspace: WS_B });
+  assert.equal(s.snapshots().length, 1, '同一天不该再留第二份');
+});
+
+test('整库快照：轮转只留 7 份，清单新的在前', () => {
+  const s = createMemoryStore({ dir: path.join(tmp, 'snap-rotate') });
+  fs.mkdirSync(WS_A, { recursive: true });
+  s.upsert({ title: 'a', content: 'x' }, { workspace: WS_A });
+  for (let i = 0; i < 9; i += 1) s.snapshotLibrary({ keep: 7, reason: 'rot' });
+  const list = s.snapshots({ limit: 50 });
+  assert.equal(list.length, 7, `应只留 7 份，实际 ${list.length}`);
+  assert.ok(list[0].name > list[6].name, '清单应按时间新的在前');
+  assert.ok(list.every((item) => item.bytes > 0 && item.files > 0), '每份都该有体积与文件数');
+});
+
+test('整库快照：库目录不存在时返回 ok:false，不抛异常', () => {
+  const s = createMemoryStore({ dir: path.join(tmp, 'snap-missing') });
+  const result = s.snapshotLibrary();
+  assert.equal(result.ok, false);
+  assert.equal(typeof result.error, 'string');
+  assert.deepEqual(s.snapshots(), []);
+});
+
 /* ---------------- 结果 ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

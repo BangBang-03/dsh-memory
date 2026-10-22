@@ -46,7 +46,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
-| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 497 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
+| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 505 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
 | **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**，且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来 |
 
@@ -67,6 +67,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 画像段落、渲染 / 解析、预算截断、版本 diff | `lib/portrait.js` | `lib/store.js` 的 portrait 段 | `portrait` |
 | 派生链（记忆 → 画像 → AGENTS.md 的源快照与标脏） | `lib/derivation.js` | `lib/store.js` 的 `promoteToAgents` | `derivation` |
 | 失效条件（`falsifier`）与到期复审 | `lib/store.js` + `lib/api.js` | — | `verification` |
+| 整库快照（`backups/` 轮转、`GET /backups`、`POST /backup`、Dream 前预备份） | `lib/store.js`（`snapshotLibrary` / `snapshots` / `mutate` 里的 `dailySnapshot`） | `lib/api.js` 的 `POST /dream`、`lib/client.js` 维护页「整库快照」卡 | `store` + `api` + `client` |
 | 密钥脱敏 / taint 检测 / trust 分级 | `lib/security.js` | `lib/store.js` 的全部写入路径 | `security` |
 | 质量分与低分闸门 | `lib/quality.js` | `lib/store.js` 的 `qualityFields` | `store` |
 | 既有记忆解析（WorkBuddy / Qoder / Claude Code / Codex / Windsurf） | `lib/markdown.js` | 扫描落点 `memorySourceSpecs()` | `markdown` |
@@ -84,6 +85,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | `dsh plugin --profile desktop add …` 被拒 | 正常：desktop profile 由桌面端独占，走 `install.ps1` |
 | 该进简报的记忆没进 | `GET /briefing-preview` 看它是不是被预算挤掉（`briefingLimit` / `briefingMaxChars`） |
 | 自动提炼写了不该写的东西 | 先看 `captureMode` 是不是 `direct`；`draft` 会进待审队列 |
+| 库被误删 / 面板点了清空 | 看 `<库根>/backups/`：每天第一次写入 + 每次 Dream 前各留一份，轮转 7 份；拷回目录即恢复（面板不做自动覆盖） |
 | 改完代码界面没变 | 宿主半（`lib/index.js` 等）改动要**重启 DSH**；纯客户端改动 `Ctrl+Shift+R` 硬刷新即可 |
 
 ### 2.3 文档路由
@@ -103,7 +105,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 ## 3. 命令速查
 
 ```powershell
-node test/run-all.mjs                  # 14 套件 / 497 断言，改完必跑（P6）
+node test/run-all.mjs                  # 14 套件 / 505 断言，改完必跑（P6）
 node test/store.test.mjs               # 单套件：把 store 换成 retrieval / api / client …
 
 pwsh -File install.ps1 -DryRun         # 只看要改什么，不落盘
@@ -127,6 +129,7 @@ git tag vX.Y.Z && git push origin main --tags   # 正式版：先快进 main 到
 ## 4. 已知坑（是设计边界，别顺手「修」）
 
 1. **`GET /export` 只覆盖条目**：画像、派生链、工作日志、注入审计都不在载荷里。换机恢复后画像是空的，属已知。
+   连画像 / 日志一起搬用整库快照（`backups/`），但**恢复是手工的**：面板只列清单与路径，不替你覆盖当前数据。
 2. **派生链只审源端**：它回答「这条记忆现在还成不成立」，不回答「AGENTS.md 里那行还在不在」。手删晋升行，链上仍是 `fresh`。
 3. **Windows 上 rename 偶发 `EPERM`**：杀软 / 索引器短时占住文件所致。`store.js` 的原子写已做**退避重试**
    （6 次、8–40ms 递增），彻底失败会先擦掉 `.tmp` 再抛。所以再红就是真问题——**别再习惯性「重跑一下」**。
@@ -142,3 +145,4 @@ git tag vX.Y.Z && git push origin main --tags   # 正式版：先快进 main 到
 
 <!-- dsh-memory:promoted 开始（由 dsh-memory 维护，请勿手工编辑本块） -->
 <!-- dsh-memory:promoted 结束 -->
+
