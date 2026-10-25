@@ -102,8 +102,9 @@ await test('GET /state 汇总面板首屏需要的全部信息', async () => {
   assert.equal(b.workspace.root, WS);
   assert.equal(b.workspace.key, workspaceKey(WS));
   assert.equal(b.settings.autoCapture, true);
-  assert.equal(b.categories.length, 9);
+  assert.equal(b.categories.length, 10);
   assert.equal(b.categories[0].label, '事实');
+  assert.ok(b.categories.some((c) => c.id === 'constraint'), '红线类别应在列');
   assert.ok(Array.isArray(b.workspaces));
   assert.equal(b.captures.length, 1);
   assert.ok(b.stats);
@@ -1061,6 +1062,59 @@ await test('POST /dream：动手前自动留一份快照，报告里带名字', 
   assert.equal(res.body.ok, true);
   assert.equal(typeof res.body.backup?.name, 'string', 'Dream 报告应带备份名');
   assert.match(res.body.backup.name, /-dream$/);
+});
+
+await test('画像导出载荷 round-trip：画像+红线往返，导入即触发画像重写', async () => {
+  /* 源端：种一份工作区画像 + 一条红线，导出画像载荷。 */
+  await call('POST', '/portrait/save', {
+    body: { workspace: WS, sections: [{ key: 'background', text: '画像导出测试背景。' }] },
+  });
+  await call('POST', '/save', {
+    body: { workspace: WS, title: '绝不 force push', content: '禁止对受保护分支 force push。', category: 'constraint' },
+  });
+  const ex = await call('GET', '/portrait/export', { query: { workspace: WS } });
+  assert.equal(ex.status, 200);
+  const pe = ex.body.portraitExport;
+  assert.ok(pe.workspace.portrait?.sections?.length, '工作区画像应在载荷');
+  assert.ok(Array.isArray(pe.workspace.history), '版本历史应在载荷');
+  assert.ok(pe.redlines.some((r) => r.title === '绝不 force push'), '红线应在载荷');
+
+  /* 带计数 rewriteNow 的实例：导入到另一个已注册工作区。 */
+  let rewriteCalls = 0;
+  const api2 = createApi({
+    store,
+    settings,
+    activeWorkspace: () => WS,
+    listWorkspaces: () => KNOWN_WORKSPACES.map((root) => ({ key: workspaceKey(root), root, active: root === WS })),
+    rewriteNow: async () => {
+      rewriteCalls += 1;
+      return { ok: true };
+    },
+  });
+  const im = await api2.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/import`,
+    body: { workspace: WS2, portraitExport: pe },
+  });
+  assert.equal(im.status, 200);
+  assert.ok(im.body.imported.added >= 1, '红线条目应入库');
+  assert.equal(im.body.portraitRewrite, 'triggered', '导入即入画像：重写应被触发');
+  const saved = store.portrait(WS2);
+  assert.ok(
+    (saved?.sections || []).some((s) => String(s.text || '').includes('画像导出测试背景')),
+    '工作区画像应回灌到目标工作区',
+  );
+  assert.equal(rewriteCalls, 1, 'rewriteNow 恰好调用一次');
+
+  /* feedPortrait=false 显式关闭。 */
+  const im2 = await api2.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/import`,
+    body: { workspace: WS2, portraitExport: pe, feedPortrait: false },
+  });
+  assert.equal(im2.status, 200);
+  assert.notEqual(im2.body.portraitRewrite, 'triggered', '显式关闭后不应触发');
+  assert.equal(rewriteCalls, 1, '关闭后不新增调用');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

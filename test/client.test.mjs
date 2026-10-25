@@ -1439,6 +1439,30 @@ await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/-
   assert.match(now, /− 客户端测试背景。/, '应显示删除行');
 });
 
+await test('红线卡：置顶渲染，解除走 overrideRedline 确认通道', async () => {
+  store.upsert(
+    { title: '绝不 force push', content: '禁止对受保护分支 force push。', category: 'constraint', source: 'agent' },
+    { workspace: WS },
+  );
+  renderPage('zh');
+  await settle(8);
+
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('redlineTitle'))), '红线卡应在画像之上');
+  assert.match(body, /绝不 force push/, '红线条目标题应显示');
+
+  /* 解除：确认后 /delete 必须带 overrideRedline（模型没有这条通道，仅面板有）。 */
+  confirmAnswer = true;
+  const liftBtn = mini.findByText(view, makeT('zh')('redlineRemove'), 'button');
+  assert.ok(liftBtn, '缺少解除按钮');
+  mini.click(liftBtn);
+  await settle(12);
+  const deleteCall = fetchCalls.find((call) => call.pathname === `${API_PREFIX}/delete`);
+  assert.ok(deleteCall, '/delete 应被调用');
+  assert.equal(deleteCall.body.overrideRedline, true, '解除红线必须带 overrideRedline');
+  assert.ok(!text().includes('禁止对受保护分支'), '解除后红线不再渲染');
+});
+
 await test('画像卡：工作区画像缺失时显示空态引导，不再套空壳双层折叠', async () => {
   /* 删掉当前工作区的画像（portrait.json + PORTRAIT.md 正本，读画像会从 md 回落解析）；
      全局画像保留 → 平铺后工作区位置应是引导而非空缺。 */

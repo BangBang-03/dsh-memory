@@ -24,6 +24,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **C5** | 只监听 `session/event` 的 `turn/end`。**不要**挂 `agent/turn-stopping` | 那个事件是串行 await，长活会拖住整个轮次收尾 |
 | **C6** | `status: draft` 四不可见：不进简报、不进检索、不进镜像、不进导出 | 待审队列形同虚设，没被批准的模型产出直接生效 |
 | **C7** | 加端点 / 加配置键 / 改默认值 → 同步三处：`cordis.patch.yml`、README 的「配置」与「HTTP 契约」表、`test/host.test.mjs` 的默认值断言 | README 是发布合同；默认值只改代码不改 patch，用户装上去还是旧值 |
+| **C8** | 红线（`category: constraint`）的治理链不得松动：`store.remove` / `patchRecord` 默认拒绝（`redline_protected`），`overrideRedline` **只能**从面板确认（`POST /delete` 显式传）进来，`memory` 工具的 forget / HTTP 默认路径永不透传；简报里红线先于预算挑选、措辞逐字渲染（不经 LLM 重写软化） | 模型一句话删掉用户的绝对禁令，或禁令被画像重写悄悄改写措辞 |
 
 ### 1.2 数据与隐私红线
 
@@ -46,7 +47,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
-| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 535 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
+| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 538 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
 | **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**，且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来 |
 
@@ -105,7 +106,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 ## 3. 命令速查
 
 ```powershell
-node test/run-all.mjs                  # 14 套件 / 535 断言，改完必跑（P6）
+node test/run-all.mjs                  # 14 套件 / 538 断言，改完必跑（P6）
 node test/store.test.mjs               # 单套件：把 store 换成 retrieval / api / client …
 
 pwsh -File install.ps1 -DryRun         # 只看要改什么，不落盘

@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-535%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-538%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -149,7 +149,9 @@ pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory/releas
 哪个版本抄来的，源被删 / 被归档 / 被取代 / 被改写时这层派生就标脏（`derivations.json`）。
 
 类别：`fact` 事实、`preference` 偏好、`decision` 决策、`convention` 约定、`component` 组件、
-`task` 待办、`note` 笔记、`feedback` 反馈（协作纠正/肯定）、`user` 用户画像（强制全局，跟着人走）。
+`task` 待办、`note` 笔记、`feedback` 反馈（协作纠正/肯定）、`user` 用户画像（强制全局，跟着人走）、
+`constraint` **红线**（用户对话中的绝对禁令：「以后绝对不要 X」；每轮注入置顶且不受预算挤占、
+永不衰减/过期/低分归档，模型不能删除或归档，只有面板确认「解除红线」可以）。
 来源：`manual` 手工 / `agent` 模型调用工具 / `auto` 自动提炼 / `import` 导入。
 `status: "draft"` 的记忆是待审草稿：不进简报、不进检索、不进镜像，批准后才生效。
 
@@ -280,7 +282,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 535 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 538 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -471,7 +473,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/save` | 新建或合并；带 `supersedes` 走版本链（旧条归档、可回滚） |
 | POST | `/update` | 改一条（含 `related` / `keywords`） |
 | POST | `/bulk` | `delete` / `archive` / `unarchive` / `pin` / `unpin` |
-| POST | `/delete` | 删一条 |
+| POST | `/delete` | 删一条（红线需带 `overrideRedline: true`，面板确认后才会带；否则 403 `redline_protected`） |
 | POST | `/settings` | 写设置 |
 | GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数、疑似矛盾对（词法只报告）、files 引用失效、overBudget 超预算信号（只报告） |
 | POST | `/health/resolve` | 一键处理：`merge`（合并簇）/ `archive`（归档过期）/ `unlink`（摘除断链） |
@@ -479,6 +481,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/portrait` | 当前画像（工作区 + 全局）、版本列表、段落定义 |
 | POST | `/portrait/save` | 保存画像（版本 +1，旧版留档） |
 | GET | `/portrait/history` | 画像版本列表（降序） |
+| GET | `/portrait/export` | **画像导出**（轻量）：工作区画像（含版本历史）+ 全局画像 + 全部红线；`POST /import` 识别该载荷自动回灌（导入即入画像） |
 | GET | `/portrait/diff` | 两个版本的逐段 diff（`from=previous` 默认，返回 `+`/`−` 行与摘要） |
 | POST | `/portrait/rewrite` | 触发画像重写（`captureMode` 决定直写或进待审） |
 | GET | `/portrait/draft` | 读取待审重写稿（批准前对模型不可见） |
@@ -489,7 +492,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/queue/reject` | 拒绝草稿（默认删除，`mode: archive` 归档留底） |
 | POST | `/supersede/rollback` | 版本链回滚：传新条 id 恢复旧条，或传旧条 id 撤销推翻 |
 | GET | `/export` | 导出当前工作区与全局**条目**（字段齐全，含 `falsifier` / `reviewAt`）；`?full=1` 连画像 / 派生链 / 最近 30 天日志一起导出，`/import` 自动识别回灌 |
-| POST | `/import` | 导入（备份载荷、纯文本，或 `path`/`paths` 指到本机既有记忆文件） |
+| POST | `/import` | 导入（备份载荷、纯文本、画像导出载荷，或 `path`/`paths` 指到本机既有记忆文件）。导入有新增时**后台自动触发一次画像重写**（「导入即入画像」；`feedPortrait: false` 关闭，响应 `portraitRewrite` 标记是否触发） |
 | GET | `/journal` | 读最近 N 天工作日志（`days`，1-30，默认 3） |
 | POST | `/journal` | 写一条工作日志（`date` 可指定，默认当天） |
 | GET | `/import-scan` | 扫描本机既有记忆来源（WorkBuddy / Qoder / Claude Code / Codex / Windsurf / 本插件镜像），只读 |
@@ -575,9 +578,9 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、535 项：
+14 个套件、538 项：
 
-- `store` 143 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
+- `store` 144 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
   草稿四不可见、重复簇聚类与合并、体检（重复/过期/断链/草稿）、索引简报预算、镜像版本链线索、keywords 加权、unlink；
   v0.5.0：日志层 journal（按天 `journal/YYYY-MM-DD.md`、只追加，是画像重写的上游原料）、画像的读写与草稿；
@@ -604,7 +607,7 @@ npm test          # 或 node test/run-all.mjs
   Claude 的索引页剔除）。
 - `distill` 41 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别；v0.3.0：
   keywords/supersedes 解析、user 类别强制 global、提示词 v2 指引、existingRecords 带 id。
-- `api` 77 项 —— 42 个端点（40 条路径）、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
+- `api` 78 项 —— 43 个端点（40 条路径）、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
   /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
   /save 带 supersedes 与 /supersede/rollback；v0.6：`GET /portrait/diff`（上一版 → 当前版的逐段 diff）。
 - `host` 12 项 —— 导出形状、Config 默认值与越界校验。
@@ -617,7 +620,7 @@ npm test          # 或 node test/run-all.mjs
   journal API（写 / 读 / 日期校验）、画像重写（draft 进待审、direct 直接落库）、提示段里的写入纪律。
 - `briefing-stability` 15 项 —— 会话级冻结快照、确定性排序、轮末召回的尾部注入与去重；
   改检索算法时用它守住「系统提示字节稳定」。
-- `client` 48 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
+- `client` 49 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
   接到真实 `store` + `api` 上驱动交互（列表 / 搜索 / 新建 / 删除 / 置顶 / 中英文切换 / 后端报错）；
   档案视图的分区与两种排布（整篇文档 / 按标签分组 / 按类型分组、分区与分组折叠、组头「整合」、
   整篇编辑、整理永远按标签算、开关即时落库；v0.3.1：档案与记忆空间合并成同一个视图）；v0.3.3：变化横幅与注入预览（/briefing-preview 被调用、✓ 简报标记、横幅展开）、时间线并入档案排布

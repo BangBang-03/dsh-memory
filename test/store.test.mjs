@@ -797,8 +797,9 @@ test('rankRecords: 归档记录被排除', () => {
   assert.equal(rankRecords([{ ...base, id: 'a', archived: true }], { limit: 5 }).length, 0);
 });
 
-test('CATEGORIES: 覆盖 9 类且与标签表一致', () => {
-  assert.equal(CATEGORIES.length, 9);
+test('CATEGORIES: 覆盖 10 类（含红线 constraint）且与标签表一致', () => {
+  assert.equal(CATEGORIES.length, 10);
+  assert.ok(CATEGORIES.includes('constraint'), '红线类别必须在列');
   for (const c of CATEGORIES) assert.ok(typeof CATEGORY_LABELS[c] === 'string');
 });
 
@@ -1195,6 +1196,49 @@ test('health：大标签库不卡秒级，且大标签跳过不伤矛盾召回',
   s.upsert({ title: '包管理器迁移', content: '不要再用 pnpm 了，改用 npm 安装依赖。', tags: ['react'] }, { workspace: ws });
   const after = s.health({ workspace: ws });
   assert.equal(after.contradictions.length, 1, '大标签库里的真矛盾对仍应命中');
+});
+
+test('红线：删除/归档受保护、批量清理跳过、简报置顶且不受预算挤占', () => {
+  const s = iso('redline');
+  const ws = makeWorkspace('v03-redline');
+  const red = s.upsert(
+    { title: '绝不提交密钥文件', content: '任何情况下不得把 .env / *.pem 提交进仓库。', category: 'constraint', source: 'agent' },
+    { workspace: ws },
+  ).record;
+  assert.equal(red.category, 'constraint');
+  assert.equal(red.archived, false, '红新建不应被质量闸门归档（正文短、分天然低）');
+
+  // 删除与归档：默认拒绝，显式 override 才放行（面板确认）。
+  assert.equal(s.remove(red.id, { workspace: ws }).error, 'redline_protected');
+  assert.equal(s.update(red.id, { archived: true }, { workspace: ws }).error, 'redline_protected');
+  assert.equal(s.update(red.id, { category: 'note' }, { workspace: ws }).error, 'redline_protected');
+  assert.equal(s.update(red.id, { content: '改过的红线正文。' }, { workspace: ws }).ok, true, '改正文不受限');
+
+  // 批量清理：跳过红线而不是整批失败。
+  const other = s.upsert({ title: '普通条目', content: '可被批量清理的内容。' }, { workspace: ws }).record;
+  const bulk = s.bulk('delete', [red.id, other.id], { workspace: ws });
+  assert.equal(bulk.affected, 1, '批量删除只动了普通条目');
+  assert.ok(s.get(red.id, { workspace: ws }), '红线仍在');
+  assert.equal(s.get(other.id, { workspace: ws }), null, '普通条目已删');
+
+  // 显式 override 才能删红线（面板确认路径）。
+  assert.equal(s.remove(red.id, { workspace: ws, overrideRedline: true }).ok, true);
+
+  // 简报：红线先于预算挑选——limit 压到 1、maxChars 压到极小时红线仍在前。
+  const rl = s.upsert(
+    { title: '绝不 force push', content: '禁止对远端受保护分支使用 force push。', category: 'constraint', source: 'agent' },
+    { workspace: ws },
+  ).record;
+  for (let i = 0; i < 8; i++) {
+    s.upsert({ title: `普通记忆 ${i}`, content: `普通内容 ${i}，用于挤占预算的长正文。`.repeat(3) }, { workspace: ws });
+  }
+  const picked = s.briefing({ workspace: ws, limit: 1, maxChars: 60, mode: 'index' });
+  assert.equal(picked[0]?.id, rl.id, '红线必须置顶且不被预算挤掉');
+
+  // 体检口径：红线不进过期与超预算信号。
+  const h = s.health({ workspace: ws, staleDays: 0 });
+  assert.ok(!h.stale.includes(rl.id), '红线不因「久未使用」过期');
+  assert.ok(!h.overBudget, '红线不占预算席位');
 });
 
 test('health：files 引用失效检测（绝对与相对路径；文件在时不误报）', () => {
