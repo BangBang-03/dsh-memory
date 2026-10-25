@@ -1290,7 +1290,7 @@ await test('portrait 模式：简报里画像全量在前、索引清单在后',
     url: '/memory/api/portrait/save',
     body: JSON.stringify({
       workspace,
-      scope: 'workspace',
+      scope: 'global',
       sections: [
         { key: 'background', text: '这是画像背景段落。' },
         { key: 'focus', text: '这是画像关注段落。' },
@@ -1307,7 +1307,7 @@ await test('portrait 模式：简报里画像全量在前、索引清单在后',
 
   /* 画像对 session-1 已冻结（当时为空），换新会话看新文本。 */
   const briefing = calls.sections[0].text({ agent: { session: { ...session, id: 'session-2' } } });
-  assert.match(briefing, /### 工作区画像（v1）/);
+  assert.match(briefing, /### 全局画像（v1）/);
   assert.match(briefing, /这是画像背景段落。/);
   assert.match(briefing, /画像模式下的普通条目/, '索引清单也要在');
 });
@@ -1323,7 +1323,7 @@ await test('portrait 快照：首次渲染为空，画像落库后的下一次�
   await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/save',
-    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '会话一之后写入。' }] }),
+    body: JSON.stringify({ workspace, scope: 'global', sections: [{ key: 'background', text: '会话一之后写入。' }] }),
   });
 
   /* 画像真的变了 → 下一次渲染重算一次（内容变了就该生效）。 */
@@ -1347,7 +1347,7 @@ await test('portrait 快照：重写后重算一次，之后继续逐字节稳�
   await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/save',
-    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '第一版画像。' }] }),
+    body: JSON.stringify({ workspace, scope: 'global', sections: [{ key: 'background', text: '第一版画像。' }] }),
   });
   const a = calls.sections[0].text({ agent: { session } });
   assert.match(a, /第一版画像。/);
@@ -1356,7 +1356,7 @@ await test('portrait 快照：重写后重算一次，之后继续逐字节稳�
   await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/save',
-    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '第二版画像。' }] }),
+    body: JSON.stringify({ workspace, scope: 'global', sections: [{ key: 'background', text: '第二版画像。' }] }),
   });
   const b = calls.sections[0].text({ agent: { session } });
   assert.match(b, /第二版画像。/, '重写是一次真实写入，下一次渲染应带上新版本');
@@ -1422,7 +1422,7 @@ await test('portrait 预览：/briefing-preview 给出画像计量并排除画�
   await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/save',
-    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '预览用背景。' }] }),
+    body: JSON.stringify({ workspace, scope: 'global', sections: [{ key: 'background', text: '预览用背景。' }] }),
   });
   await callRoute(route, {
     method: 'POST',

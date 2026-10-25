@@ -1231,13 +1231,14 @@ await test('维护页：整库快照卡列出备份，点「立即备份」调 /
   assert.ok(text().includes(backups[0].name.slice(0, 10)), '清单应显示快照时间');
 });
 
-await test('画像卡：段落带证据标签，没有证据的段标「未溯源」', async () => {
-  const version = (store.portrait(WS)?.version || 0) + 1;
+await test('画像卡：段落带证据标签，没有证据的段标「未溯源」（全局画像块）', async () => {
+  const version = (store.portrait('')?.version || 0) + 1;
   await api.handle({
     method: 'POST',
     pathname: `${API_PREFIX}/portrait/save`,
     body: {
       workspace: WS,
+      scope: 'global',
       sections: [
         { key: 'background', text: '有证据的背景段。' },
         { key: 'focus', text: '没有证据的关注段。' },
@@ -1249,16 +1250,16 @@ await test('画像卡：段落带证据标签，没有证据的段标「未溯�
   renderPage('zh');
   await settle(8);
 
-  const wsTitle = mini
+  const glTitle = mini
     .findAll(
       view,
       (node) =>
         node.type === 'span' &&
-        mini.textOf(node) === `${makeT('zh')('portraitWorkspaceLabel')} v${version}`,
+        mini.textOf(node) === `${makeT('zh')('portraitGlobalLabel')} v${version}`,
     )
     .find((node) => typeof node.props.onClick === 'function');
-  assert.ok(wsTitle, '找不到可点击的工作区画像子行标题');
-  mini.click(wsTitle);
+  assert.ok(glTitle, '找不到可点击的全局画像子行标题');
+  mini.click(glTitle);
   await settle(6);
 
   const body = text();
@@ -1329,12 +1330,11 @@ await test('维护页待审队列：草稿批准后生效、拒绝后消失，�
  * 画像卡（portrait）
  * ------------------------------------------------------------------ */
 
-await test('画像卡：渲染、展开显示两份画像、编辑保存走 /portrait/save', async () => {
+await test('画像卡：只渲染全局画像块（工作区画像不再出现），编辑保存走 /portrait/save', async () => {
   /* Dream 测试可能已经触发过一次画像重写：基准版本号要在本测试写入前取。 */
-  const baseWsVersion = store.portrait(WS)?.version || 0;
   const baseGlVersion = store.portrait('')?.version || 0;
 
-  /* 准备：给当前工作区与全局各写一份画像。 */
+  /* 准备：工作区与全局各写一份画像——工作区那份数据在场，但面板不应再渲染它。 */
   await api.handle({
     method: 'POST',
     pathname: `${API_PREFIX}/portrait/save`,
@@ -1357,31 +1357,25 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
   renderPage('zh');
   await settle(8);
 
-  /* 外层「画像」标题已删（与子块「工作区画像」重复命名），改断言工具行按钮在场。 */
+  /* 外层「画像」标题已删（与子块「全局画像」重复命名），改断言工具行按钮在场。 */
   assert.ok(mini.findByText(view, makeT('zh')('portraitRewrite'), 'button'), '缺少画像工具行按钮');
   assert.ok(
     fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait`),
     '/portrait 应随页面加载',
   );
 
-  /* 平铺结构：两份画像的子折叠行直接可见（正文不铺开）。 */
+  /* 平铺结构：只铺「全局画像」一个子折叠行（正文不铺开），工作区画像块不再出现。 */
   const opened = text();
-  assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceLabel'))), '应有工作区画像块');
   assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '应有全局画像块');
-  assert.match(opened, /v\d+/, '应显示版本号');
-  assert.ok(!opened.includes('客户端测试背景。'), '子折叠默认收起，正文不应铺开');
-
-  /* 二层：点开工作区子行看正文，再点开全局子行。 */
-  const wsTitle = mini.findByText(
-    view,
-    `${makeT('zh')('portraitWorkspaceLabel')} v${baseWsVersion + 1}`,
-    'span',
+  assert.doesNotMatch(
+    opened,
+    new RegExp(escapeRe(makeT('zh')('portraitWorkspaceLabel'))),
+    '工作区画像块不应再出现',
   );
-  assert.ok(wsTitle, '找不到工作区画像子行标题');
-  mini.click(wsTitle);
-  await settle(6);
-  assert.ok(text().includes('客户端测试背景。'), '展开子行后应显示工作区画像正文');
+  assert.match(opened, /v\d+/, '应显示版本号');
+  assert.ok(!opened.includes('全局偏好文本。'), '子折叠默认收起，正文不应铺开');
 
+  /* 二层：点开全局子行看正文。 */
   const glTitle = mini.findByText(
     view,
     `${makeT('zh')('portraitGlobalLabel')} v${baseGlVersion + 1}`,
@@ -1392,7 +1386,7 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
   await settle(6);
   assert.ok(text().includes('全局偏好文本。'), '展开子行后应显示全局画像正文');
 
-  /* 编辑工作区画像（第一个「编辑」按钮 = 画像卡内的工作区画像）。 */
+  /* 编辑全局画像（第一个「编辑」按钮 = 画像卡内的全局画像；全局段标题用 globalTitle）。 */
   const edit = mini.findByText(view, makeT('zh')('editDoc'), 'button');
   assert.ok(edit, '缺少编辑按钮');
   mini.click(edit);
@@ -1400,9 +1394,9 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
 
   const area = mini
     .findAllByTag(view, 'textarea')
-    .find((node) => String(node.props.value || '').includes('**工作背景**'));
-  assert.ok(area, '点编辑应打开画像编辑框（含段标题）');
-  area.props.onChange({ target: { value: '**工作背景**\n改过的背景。\n\n**当前关注**\n改过的关注。' } });
+    .find((node) => String(node.props.value || '').includes('**个人背景**'));
+  assert.ok(area, '点编辑应打开全局画像编辑框（含段标题）');
+  area.props.onChange({ target: { value: '**个人背景**\n改过的偏好。' } });
   await settle(4);
 
   const save = mini.findByText(view, makeT('zh')('save'), 'button');
@@ -1410,10 +1404,9 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
   mini.click(save);
   await settle(12);
 
-  const after = store.portrait(WS);
-  assert.equal(after.version, baseWsVersion + 2, '保存后版本递增（初始保存 + 编辑保存）');
-  assert.equal(after.sections.find((s) => s.key === 'background').text, '改过的背景。');
-  assert.equal(after.sections.find((s) => s.key === 'focus').text, '改过的关注。');
+  const after = store.portrait('');
+  assert.equal(after.version, baseGlVersion + 2, '保存后版本递增（初始保存 + 编辑保存）');
+  assert.equal(after.sections.find((s) => s.key === 'preference').text, '改过的偏好。');
   assert.ok(
     fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait/save` && call.method === 'POST'),
     '/portrait/save 应被调用',
@@ -1421,7 +1414,20 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
   assert.match(text(), /画像已保存/, '保存后应出现提示');
 });
 
-await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/- 行', async () => {
+await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/- 行（全局画像）', async () => {
+  /* 种两版全局画像：v+1 旧文案、v+2 新文案，diff 应显示这一对增删行。 */
+  const baseGlVersion = store.portrait('')?.version || 0;
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/save`,
+    body: { workspace: WS, scope: 'global', sections: [{ key: 'background', text: '客户端测试背景。' }] },
+  });
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/save`,
+    body: { workspace: WS, scope: 'global', sections: [{ key: 'background', text: '改过的背景。' }] },
+  });
+
   fetchCalls.length = 0;
   renderPage('zh');
   await settle(8);
@@ -1436,7 +1442,8 @@ await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/-
     '/portrait/diff 应被调用',
   );
   const now = text();
-  assert.match(now, /v\d+ → v\d+/, '应显示版本区间');
+  /* 版本区间用种出来的全局版本号锁死：同时验证 diff 请求走的是全局而非工作区。 */
+  assert.match(now, new RegExp(`v${baseGlVersion + 1} → v${baseGlVersion + 2}`), '应显示全局画像版本区间');
   assert.match(now, /\+ 改过的背景。/, '应显示新增行');
   assert.match(now, /− 客户端测试背景。/, '应显示删除行');
 });
@@ -1465,14 +1472,14 @@ await test('红线卡：置顶渲染，解除走 overrideRedline 确认通道', 
   assert.ok(!text().includes('禁止对受保护分支'), '解除后红线不再渲染');
 });
 
-await test('画像卡：工作区画像缺失时显示空态引导，不再套空壳双层折叠', async () => {
-  /* 删掉当前工作区的画像（portrait.json + PORTRAIT.md 正本，读画像会从 md 回落解析）；
-     全局画像保留 → 平铺后工作区位置应是引导而非空缺。 */
+await test('画像卡：全局画像缺失时显示空态引导（工作区画像已撤下）', async () => {
+  /* 只删全局画像（workspaces/_global/ 下的 portrait.json 与 PORTRAIT.md）；
+     面板只剩全局画像一块 → 缺失时应在原位给空态引导（重写生成或走迁移卡导入）。 */
   const walk = (folder) => {
     for (const name of fs.readdirSync(folder)) {
       const full = path.join(folder, name);
       if (fs.statSync(full).isDirectory()) walk(full);
-      else if ((name === 'portrait.json' || name === 'PORTRAIT.md') && !full.includes('_global')) {
+      else if ((name === 'portrait.json' || name === 'PORTRAIT.md') && full.includes('_global')) {
         fs.rmSync(full, { force: true });
       }
     }
@@ -1482,16 +1489,11 @@ await test('画像卡：工作区画像缺失时显示空态引导，不再套�
   await settle(8);
 
   const body = text();
-  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceEmptyHint'))), '画像区应在场（空态引导或画像块）');
-  assert.match(
-    body,
-    new RegExp(escapeRe(makeT('zh')('portraitWorkspaceEmptyHint'))),
-    '工作区画像缺失时应显示空态引导',
-  );
-  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '全局画像块应照常显示');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceEmptyHint'))), '全局画像缺失时应显示空态引导');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '空态引导块以「全局画像」为标题');
 });
 
-await test('画像卡：重写按钮触发 /portrait/rewrite，完成后出提示', async () => {
+await test('画像卡：重写按钮触发 /portrait/rewrite（scope=global），完成后出提示', async () => {
   fetchCalls.length = 0;
   renderPage('zh');
   await settle(8);
@@ -1500,13 +1502,19 @@ await test('画像卡：重写按钮触发 /portrait/rewrite，完成后出提�
   mini.click(rewrite);
   await settle(14);
   assert.ok(
-    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait/rewrite` && call.method === 'POST'),
-    '/portrait/rewrite 应被调用',
+    fetchCalls.some(
+      (call) =>
+        call.pathname === `${API_PREFIX}/portrait/rewrite` &&
+        call.method === 'POST' &&
+        call.body?.scope === 'global',
+    ),
+    '/portrait/rewrite 应以 scope=global 被调用',
   );
   assert.match(text(), /画像已重写/, '应有完成提示');
   assert.equal(
-    store.portrait(WS).sections.find((s) => s.key === 'background').text,
+    store.portrait('').sections.find((s) => s.key === 'background').text,
     '假重写背景。',
+    '重写应落在全局画像',
   );
 });
 
@@ -1633,27 +1641,19 @@ await test('维护页：复审队列列出到期项，标记后不再到期', as
   assert.equal(store.reviewQueue(WS).due.filter((r) => r.id === rec.id).length, 0, '复审后不应再到期');
 });
 
-await test('画像卡：「写进 AGENTS.md」按钮调用 /promote', async () => {
-  /* AGENTS.md 写在工作区目录里，测试工作区是假路径：先把目录造出来。 */
-  fs.mkdirSync(WS, { recursive: true });
+await test('画像卡：晋升入口随工作区画像撤下（全局画像不晋升）', async () => {
+  /* AGENTS.md 是工作区文件，「写进 AGENTS.md」原挂在工作区画像块上；块撤下后入口一并撤下。
+     故意保留工作区画像数据：证明即便数据在场，面板也不再渲染晋升按钮。 */
   store.savePortrait(WS, {
     sections: [{ key: 'preference', text: '客户端画像约定。' }],
   });
 
-  fetchCalls.length = 0;
   renderPage('zh');
   await settle(8);
-  const btn = mini.findByText(view, makeT('zh')('portraitPromote'), 'button');
-  assert.ok(btn, '应有「写进 AGENTS.md」按钮');
-  mini.click(btn);
-  await settle(16);
-
   assert.ok(
-    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/promote` && call.method === 'POST'),
-    '/promote 应被调用',
+    !mini.findByText(view, makeT('zh')('portraitPromote'), 'button'),
+    '面板不应再渲染「写进 AGENTS.md」按钮',
   );
-  const agents = fs.readFileSync(path.join(WS, 'AGENTS.md'), 'utf8');
-  assert.match(agents, /客户端画像约定/, 'AGENTS.md 应写进画像那一段');
 });
 
 /* ------------------------------------------------------------------ *

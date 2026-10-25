@@ -1065,9 +1065,9 @@ await test('POST /dream：动手前自动留一份快照，报告里带名字', 
 });
 
 await test('画像导出载荷 round-trip：画像+红线往返，导入即触发画像重写', async () => {
-  /* 源端：种一份工作区画像 + 一条红线，导出画像载荷。 */
+  /* 源端：种一份全局画像 + 一条红线，导出画像载荷（工作区画像已撤，只导全局）。 */
   await call('POST', '/portrait/save', {
-    body: { workspace: WS, sections: [{ key: 'background', text: '画像导出测试背景。' }] },
+    body: { workspace: WS, scope: 'global', sections: [{ key: 'background', text: '画像导出测试背景。' }] },
   });
   await call('POST', '/save', {
     body: { workspace: WS, title: '绝不 force push', content: '禁止对受保护分支 force push。', category: 'constraint' },
@@ -1075,8 +1075,9 @@ await test('画像导出载荷 round-trip：画像+红线往返，导入即触�
   const ex = await call('GET', '/portrait/export', { query: { workspace: WS } });
   assert.equal(ex.status, 200);
   const pe = ex.body.portraitExport;
-  assert.ok(pe.workspace.portrait?.sections?.length, '工作区画像应在载荷');
-  assert.ok(Array.isArray(pe.workspace.history), '版本历史应在载荷');
+  assert.equal(pe.workspace, undefined, '工作区画像已撤，不应在载荷');
+  assert.ok(pe.global.portrait?.sections?.length, '全局画像应在载荷');
+  assert.ok(Array.isArray(pe.global.history), '版本历史应在载荷');
   assert.ok(pe.redlines.some((r) => r.title === '绝不 force push'), '红线应在载荷');
 
   /* 带计数 rewriteNow 的实例：导入到另一个已注册工作区。 */
@@ -1098,11 +1099,12 @@ await test('画像导出载荷 round-trip：画像+红线往返，导入即触�
   });
   assert.equal(im.status, 200);
   assert.ok(im.body.imported.added >= 1, '红线条目应入库');
+  assert.equal(im.body.globalPortraitSaved, true, '全局画像应回灌');
   assert.equal(im.body.portraitRewrite, 'triggered', '导入即入画像：重写应被触发');
-  const saved = store.portrait(WS2);
+  const saved = store.portrait('');
   assert.ok(
     (saved?.sections || []).some((s) => String(s.text || '').includes('画像导出测试背景')),
-    '工作区画像应回灌到目标工作区',
+    '全局画像应已落库',
   );
   assert.equal(rewriteCalls, 1, 'rewriteNow 恰好调用一次');
 
@@ -1115,6 +1117,51 @@ await test('画像导出载荷 round-trip：画像+红线往返，导入即触�
   assert.equal(im2.status, 200);
   assert.notEqual(im2.body.portraitRewrite, 'triggered', '显式关闭后不应触发');
   assert.equal(rewriteCalls, 1, '关闭后不新增调用');
+});
+
+await test('POST /portrait/migrate：跨 App 画像粘贴整合（rewrite 通道与降级通道）', async () => {
+  const payload = {
+    text: '那边 AI 的回答：```json\n{"background":"迁移背景：后端工程师。","preference":"偏好中文交流、pnpm。","focus":"正在做记忆插件。","recent":"开始用画像替代条目管理。"}\n```',
+  };
+
+  /* rewrite 通道：rewriteNow 可用时走 LLM 整合并透传 migrateText。 */
+  let migrateArg = null;
+  const apiRw = createApi({
+    store,
+    settings,
+    activeWorkspace: () => WS,
+    listWorkspaces: () => KNOWN_WORKSPACES.map((root) => ({ key: workspaceKey(root), root, active: root === WS })),
+    rewriteNow: async (arg) => {
+      migrateArg = arg;
+      return { ok: true, portrait: { sections: [{ key: 'background', text: '整合后的背景。' }] } };
+    },
+  });
+  const rw = await apiRw.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/migrate`,
+    body: payload,
+  });
+  assert.equal(rw.status, 200);
+  assert.equal(rw.body.via, 'rewrite', '应走 LLM 整合通道');
+  assert.equal(rw.body.merged, true);
+  assert.equal(migrateArg.scope, 'global', '迁移只作用于全局画像');
+  assert.ok(String(migrateArg.migrateText || '').includes('迁移背景'), 'migrateText 应带四段内容');
+
+  /* 降级通道：无 rewriteNow 时逐段合并落库。 */
+  const fb = await call('POST', '/portrait/migrate', { body: payload });
+  assert.equal(fb.status, 200);
+  assert.equal(fb.body.via, 'fallback', '无 rewriteNow 应回落段落合并');
+  const merged = store.portrait('');
+  assert.ok(
+    (merged?.sections || []).some((s) => String(s.text || '').includes('迁移背景')),
+    '降级合并应把迁移段并入全局画像',
+  );
+
+  /* 坏载荷：非 JSON / 空文本一律 400。 */
+  const bad1 = await call('POST', '/portrait/migrate', { body: { text: '这不是 JSON' } });
+  assert.equal(bad1.status, 400);
+  const bad2 = await call('POST', '/portrait/migrate', { body: { text: '' } });
+  assert.equal(bad2.status, 400);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

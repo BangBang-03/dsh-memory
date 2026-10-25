@@ -430,7 +430,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `disabledWorkspaces` | `[]` | 停用自动记忆的工作区（绝对路径，归一后精确匹配）：不注入、不自动提炼；工具仍可手动读写。事故排查时也用它把一次性工作区摘出去 |
 | `mirror` | `true` | 在工作区写 `.dsh-memory/MEMORY.md` |
 | `briefing` | `true` | 会话开始注入记忆简报 |
-| `briefMode` | `"index"` | `index` 一行一条索引（省 token）；`full` 标题+正文摘录；`portrait` 画像全量 + 索引清单 |
+| `briefMode` | `"index"` | `index` 一行一条索引（省 token）；`full` 标题+正文摘录；`portrait` 全局画像全量（工作区画像已撤）+ 索引清单 |
 | `briefingLimit` | `12` | 注入条数上限（1–50） |
 | `briefingMaxChars` | `2000` | 注入字数上限（200–20000） |
 | `portraitMaxChars` | `1400` | 画像注入的字数预算（工作区 + 全局合计；仅 `briefMode=portrait` 生效，200–8000） |
@@ -481,9 +481,10 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/portrait` | 当前画像（工作区 + 全局）、版本列表、段落定义 |
 | POST | `/portrait/save` | 保存画像（版本 +1，旧版留档） |
 | GET | `/portrait/history` | 画像版本列表（降序） |
-| GET | `/portrait/export` | **画像导出**（轻量）：工作区画像（含版本历史）+ 全局画像 + 全部红线；`POST /import` 识别该载荷自动回灌（导入即入画像） |
+| GET | `/portrait/export` | **画像导出**（轻量）：全局画像（含版本历史）+ 全部红线；`POST /import` 识别该载荷自动回灌（导入即入画像） |
 | GET | `/portrait/diff` | 两个版本的逐段 diff（`from=previous` 默认，返回 `+`/`−` 行与摘要） |
 | POST | `/portrait/rewrite` | 触发画像重写（`captureMode` 决定直写或进待审） |
+| POST | `/portrait/migrate` | 跨 App 迁移画像：粘贴其它应用 AI 按提示词总结的画像 JSON，与全局画像整合（LLM 整合，失败降级段落合并） |
 | GET | `/portrait/draft` | 读取待审重写稿（批准前对模型不可见） |
 | POST | `/portrait/draft/approve` | 批准重写稿：落库、旧版留档、清待审文件 |
 | POST | `/portrait/draft/discard` | 丢弃重写稿 |
