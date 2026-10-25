@@ -1047,7 +1047,8 @@ await test('记忆库顶部：变化横幅 + 注入预览（/briefing-preview �
   await settle(8);
   const body = text();
   assert.match(body, new RegExp(escapeRe(makeT('zh')('recentTitle'))), '缺少「刚刚记了什么」横幅');
-  assert.match(body, new RegExp(escapeRe(makeT('zh')('briefPreviewTitle'))), '缺少注入预览');
+  /* 「下次会话将注入」预览区已按用户要求撤下，但 ids 拉取仍发生（✓ 简报 标记依赖）。 */
+  assert.doesNotMatch(body, new RegExp(escapeRe(makeT('zh')('briefPreviewTitle'))), '注入预览区不应再渲染');
   assert.ok(
     fetchCalls.some((call) => call.pathname === `${API_PREFIX}/briefing-preview`),
     '/briefing-preview 未被调用',
@@ -1356,7 +1357,8 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
   renderPage('zh');
   await settle(8);
 
-  assert.match(text(), new RegExp(escapeRe(makeT('zh')('portraitTitle'))), '缺少画像卡标题');
+  /* 外层「画像」标题已删（与子块「工作区画像」重复命名），改断言工具行按钮在场。 */
+  assert.ok(mini.findByText(view, makeT('zh')('portraitRewrite'), 'button'), '缺少画像工具行按钮');
   assert.ok(
     fetchCalls.some((call) => call.pathname === `${API_PREFIX}/portrait`),
     '/portrait 应随页面加载',
@@ -1480,7 +1482,7 @@ await test('画像卡：工作区画像缺失时显示空态引导，不再套�
   await settle(8);
 
   const body = text();
-  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitTitle'))), '缺少画像区标题');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceEmptyHint'))), '画像区应在场（空态引导或画像块）');
   assert.match(
     body,
     new RegExp(escapeRe(makeT('zh')('portraitWorkspaceEmptyHint'))),
