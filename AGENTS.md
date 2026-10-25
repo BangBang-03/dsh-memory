@@ -46,7 +46,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
-| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 505 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
+| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 535 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
 | **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**，且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来 |
 
@@ -105,7 +105,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 ## 3. 命令速查
 
 ```powershell
-node test/run-all.mjs                  # 14 套件 / 505 断言，改完必跑（P6）
+node test/run-all.mjs                  # 14 套件 / 535 断言，改完必跑（P6）
 node test/store.test.mjs               # 单套件：把 store 换成 retrieval / api / client …
 
 pwsh -File install.ps1 -DryRun         # 只看要改什么，不落盘
@@ -128,8 +128,9 @@ git tag vX.Y.Z && git push origin main --tags   # 正式版：先快进 main 到
 
 ## 4. 已知坑（是设计边界，别顺手「修」）
 
-1. **`GET /export` 只覆盖条目**：画像、派生链、工作日志、注入审计都不在载荷里。换机恢复后画像是空的，属已知。
-   连画像 / 日志一起搬用整库快照（`backups/`），但**恢复是手工的**：面板只列清单与路径，不替你覆盖当前数据。
+1. **普通 `GET /export` 只覆盖条目；`?full=1` 连画像 / 派生链 / 日志（注入审计任何载荷都不含）**。
+   full 载荷经 `POST /import` 自动回灌（画像空不覆盖、派生链按 `updatedAt` 合并、日志去重追加）。
+   要字节级整库搬运用 `backups/` 快照，但**恢复是手工的**：面板只列清单与路径，不替你覆盖当前数据。
 2. **派生链只审源端**：它回答「这条记忆现在还成不成立」，不回答「AGENTS.md 里那行还在不在」。手删晋升行，链上仍是 `fresh`。
 3. **Windows 上 rename 偶发 `EPERM`**：杀软 / 索引器短时占住文件所致。`store.js` 的原子写已做**退避重试**
    （6 次、8–40ms 递增），彻底失败会先擦掉 `.tmp` 再抛。所以再红就是真问题——**别再习惯性「重跑一下」**。

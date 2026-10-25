@@ -463,6 +463,28 @@ await test('webServer 路由守好边界：非本插件路径 404、不可信来
   assert.equal(crossSite.status, 403);
 });
 
+await test('webServer 路由：超过 4MB 的请求体回 413 payload_too_large（P3-1）', async () => {
+  const { route } = activate();
+  const big = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/save',
+    headers: { host: '127.0.0.1:19387' },
+    body: 'x'.repeat(5 * 1024 * 1024), // 5MB > 4MB 上限；非 JSON 也无妨——413 在解析前就该答
+  });
+  assert.equal(big.status, 413);
+  assert.equal(big.body.ok, false);
+  assert.equal(big.body.error, 'payload_too_large');
+
+  // 限内请求不受影响（选不落库的 scan 端点）。
+  const normal = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/security/scan',
+    headers: { host: '127.0.0.1:19387' },
+    body: JSON.stringify({ text: 'normal size body' }),
+  });
+  assert.equal(normal.status, 200);
+});
+
 await test('数据目录不可用时只告警，apply() 仍然不抛错（外壳不会被拖垮）', () => {
   const file = path.join(tmp, 'a-file-not-a-dir');
   fs.writeFileSync(file, 'x', 'utf8');
@@ -694,10 +716,13 @@ await test('轮次结束的自动提炼：LLM 报错时只记 reason=error，不
 });
 
 await test('镜像：面板保存的记忆真的落到工作区 .dsh-memory/MEMORY.md，关掉开关后撤回', async () => {
-  const { route } = activate();
+  const { calls, route } = activate();
   // 用独立工作区：本套件其它测试共用同一个目录，镜像会互相看见。
   const ws = path.join(tmp, 'mirror-workspace');
   fs.mkdirSync(ws, { recursive: true });
+  // P2-1 白名单：显式 workspace 必须注册过（活跃会话或落过库的工作区）——
+  // 先像真实流程一样在这个工作区里开一个会话。
+  calls.events.find(([name]) => name === 'session/created')[1]({ id: 'mirror-ws-session', header: { cwd: ws } });
   const q = `?workspace=${encodeURIComponent(ws)}`;
   const mirrorFile = path.join(ws, '.dsh-memory', 'MEMORY.md');
 
@@ -742,9 +767,11 @@ await test('镜像：面板保存的记忆真的落到工作区 .dsh-memory/MEMO
 });
 
 await test('既有记忆导入：扫描本机来源 → 按来源导入 → 真的落库', async () => {
-  const { route } = activate();
+  const { calls, route } = activate();
   const ws = path.join(tmp, 'import-workspace');
   const home = path.join(tmp, 'import-home');
+  // P2-1 白名单：先注册工作区（在这个工作区里开一个会话），显式 workspace 才可用。
+  calls.events.find(([name]) => name === 'session/created')[1]({ id: 'import-ws-session', header: { cwd: ws } });
   fs.mkdirSync(path.join(ws, '.workbuddy', 'memory'), { recursive: true });
   fs.mkdirSync(path.join(home, '.qoder', 'memory'), { recursive: true });
   fs.writeFileSync(
@@ -782,7 +809,9 @@ await test('既有记忆导入：扫描本机来源 → 按来源导入 → 真�
     assert.deepEqual(titles, ['用户与交付期望', '环境坑'].sort());
     // 用户级来源进全局库，工作区级进本工作区库。
     assert.equal(list.body.records.find((r) => r.title === '环境坑').scope, 'workspace');
-    const global = await callRoute(route, { url: '/memory/api/list?key=_global' });
+    // 注册会话后 activeWorkspace 指向本工作区，无参 /list 会带出工作区条目——
+    // 这里要看的是「用户级来源进全局库」，用 scope=global 过滤。
+    const global = await callRoute(route, { url: '/memory/api/list?scope=global' });
     assert.equal(global.body.records.length, 1);
     assert.equal(global.body.records[0].scope, 'global');
     // 来源文件是只读的：导入不改动它们。

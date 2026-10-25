@@ -30,6 +30,28 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-api-'));
 const WS = process.platform === 'win32' ? 'C:\\proj\\记忆测试' : '/proj/memory-test';
 const WS2 = process.platform === 'win32' ? 'C:\\proj\\other' : '/proj/other';
 
+/*
+ * 显式 workspace 白名单（P2-1）：resolveWorkspace 只认 listWorkspaces() 里登记过
+ * 或等于活动工作区的路径。把下面测试会显式传到的工作区都登记进 mock；
+ * 未登记路径的拒绝行为在「失败路径」一节单独测。
+ */
+const KNOWN_WORKSPACES = [
+  WS,
+  WS2,
+  process.platform === 'win32' ? 'C:\\proj\\exposed-health' : '/proj/exposed-health',
+  process.platform === 'win32' ? 'C:\\proj\\dream' : '/proj/dream',
+  process.platform === 'win32' ? 'C:\\proj\\one-version' : '/proj/one-version',
+  path.join(tmp, 'ws-derivation'),
+  path.join(tmp, 'ws-review'),
+  path.join(tmp, 'ws-promote-portrait'),
+  path.join(tmp, 'ws-review-cap'),
+  path.join(tmp, 'ws-does-not-exist'),
+  path.join(tmp, 'ws-empty'),
+  path.join(tmp, 'ws-health-extra'),
+  path.join(tmp, 'ws-full-export'),
+  path.join(tmp, 'ws-full-import'),
+];
+
 const store = createMemoryStore({ dir: path.join(tmp, 'storage') });
 let settingsValue = { enabled: true, briefing: true, briefMode: 'index', briefingLimit: 12, briefingMaxChars: 2000, autoCapture: true, briefingBudget: 12 };
 const settings = {
@@ -46,7 +68,7 @@ const api = createApi({
   store,
   settings,
   activeWorkspace: () => WS,
-  listWorkspaces: () => [{ key: workspaceKey(WS), root: WS, active: true }],
+  listWorkspaces: () => KNOWN_WORKSPACES.map((root) => ({ key: workspaceKey(root), root, active: root === WS })),
   captures: () => [{ at: '2026-01-01T00:00:00.000Z', status: 'saved', count: 2 }],
   version: '0.1.0',
   distillNow: async ({ text }) => [{ title: text.slice(0, 20), content: text, category: 'note', tags: [], confidence: 0.9 }],
@@ -270,6 +292,44 @@ await test('GET /export 与 POST /import 往返', async () => {
   assert.ok(list.body.records.length > 0);
 });
 
+await test('GET /export?full=1 并入画像/派生链/日志，POST /import 识别 full 载荷回灌', async () => {
+  const src = path.join(tmp, 'ws-full-export');
+  const dst = path.join(tmp, 'ws-full-import');
+  await call('POST', '/save', {
+    body: { workspace: src, title: 'full 载荷记忆', content: '换机整库恢复的条目', category: 'fact' },
+  });
+  await call('POST', '/portrait/save', {
+    body: { workspace: src, sections: [{ key: 'background', text: '用户在做 dsh-memory 插件。' }] },
+  });
+  await call('POST', '/journal', { body: { workspace: src, text: 'full 导出前的日志。' } });
+
+  const plain = (await call('GET', '/export', { query: { workspace: src } })).body.export;
+  assert.equal(plain.full, undefined, '不带 full 的导出行为不变');
+  assert.equal(plain.portrait, undefined);
+
+  for (const flag of ['1', 'true']) {
+    const full = (await call('GET', '/export', { query: { workspace: src, full: flag } })).body.export;
+    assert.equal(full.full, true, `full=${flag} 应透传`);
+    assert.ok(full.portrait, 'full 载荷应含画像');
+    assert.ok(Array.isArray(full.derivations) && full.derivations.length > 0, 'full 载荷应含派生链');
+    assert.equal(full.journal.length, 1, 'full 载荷应含最近日志');
+
+    const res = await call('POST', '/import', { body: { workspace: dst, export: full } });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.imported.full.portrait, true, '画像回灌成功');
+    /* 第二轮（full=true）是重复导入：records 已在，added=0 / replaced>0，合并计数断言。 */
+    assert.ok(res.body.imported.added + res.body.imported.replaced > 0, 'records 走既有导入路径');
+    assert.ok(store.portrait(dst), '画像应回灌');
+    assert.equal(store.portrait(dst).sections.find((x) => x.key === 'background').text, '用户在做 dsh-memory 插件。');
+    assert.ok(store.derivationList(dst).length > 0, '派生链应回灌');
+    assert.equal(store.journalDates(dst).length, 1, '日志应回灌');
+  }
+
+  /* 第二轮（full=true）重复导入：日志按行去重，仍只有一份。 */
+  const day = store.journalRead(dst, { date: store.journalDates(dst)[0] }).text;
+  assert.equal(day.split('\n').filter((line) => line.includes('full 导出前的日志。')).length, 1, '重复导入日志去重');
+});
+
 await test('POST /import 纯文本按段落切分', async () => {
   const res = await call('POST', '/import', {
     body: { workspace: WS2, text: '- 第一条记忆内容\n补充说明\n\n- 第二条记忆内容' },
@@ -338,6 +398,41 @@ await test('handler 抛错返回 500 而不是崩溃', async () => {
   assert.equal(res.status, 500);
   assert.equal(res.body.error, 'handler_failed');
   assert.equal(res.body.detail.message, 'boom');
+});
+
+await test('未注册的显式 workspace 返回 400 invalid_workspace（P2-1 白名单）', async () => {
+  const victim = path.join(tmp, 'victim-not-registered');
+  fs.mkdirSync(victim, { recursive: true }); // 目录真实存在才算得上「可被写入」的受害者
+  const res = await call('POST', '/save', {
+    body: { workspace: victim, title: '越界写入', content: '不应写到未注册目录里的内容' },
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error, 'invalid_workspace');
+  assert.equal(fs.existsSync(path.join(victim, '.dsh-memory')), false, '受害目录不应出现 .dsh-memory');
+  assert.equal(store.list({ workspace: victim, includeGlobal: false }).total, 0, '也不应落库');
+
+  /* 所有带 workspace 参数的端点统一走白名单：query 形式同样被拒。 */
+  const byQuery = await call('GET', '/state', { query: { workspace: victim } });
+  assert.equal(byQuery.status, 400);
+  assert.equal(byQuery.body.error, 'invalid_workspace');
+
+  const byImport = await call('POST', '/import', { body: { workspace: victim, text: '- 越界导入' } });
+  assert.equal(byImport.status, 400);
+  assert.equal(byImport.body.error, 'invalid_workspace');
+
+  /* 已注册工作区不受影响。 */
+  const ok = await call('POST', '/save', {
+    body: { workspace: WS2, title: '白名单回归', content: '已注册工作区应正常写入。' },
+  });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.record.title, '白名单回归');
+});
+
+await test('win32 下大小写不同的已注册工作区不被白名单误拒', async () => {
+  if (process.platform !== 'win32') return;
+  /* KNOWN_WORKSPACES 登记的是 C:\proj\exposed-health；小写变体是同一目录，不该 400。 */
+  const res = await call('GET', '/state', { query: { workspace: 'c:\\proj\\exposed-health' } });
+  assert.equal(res.status, 200, `小写变体不应 400：${JSON.stringify(res.body)}`);
 });
 
 await test('无 distill/capture 注入时返回 501', async () => {
@@ -642,6 +737,43 @@ await test('GET /health 报告曝光未用；打开后消失', async () => {
   store.markOpened([r.id], { workspace: ws });
   const after = await call('GET', '/health', { query: { workspace: ws } });
   assert.ok(!after.body.health.exposedButUnused.some((item) => item.id === r.id), '打开后应移出曝光未用');
+});
+
+await test('GET /health 报告疑似矛盾对、files 失效与 overBudget（briefingLimit 从设置透传）', async () => {
+  const ws = path.join(tmp, 'ws-health-extra');
+  const keep = store.upsert(
+    { title: 'API 包管理器约定', content: '这个项目统一使用 pnpm 安装依赖。', tags: ['tooling'] },
+    { workspace: ws },
+  ).record;
+  const drop = store.upsert(
+    { title: 'API 包管理器迁移', content: '不要再用 pnpm 了，改用 npm 安装依赖。', tags: ['tooling'] },
+    { workspace: ws },
+  ).record;
+  for (let i = 0; i < 10; i += 1) {
+    store.upsert({ title: `健康扩展条目${i}`, content: `第 ${i} 条撑库容的记忆。` }, { workspace: ws });
+  }
+  const deadAbs = path.join(tmp, 'no-such', 'gone.ts');
+  const deadRel = store.upsert(
+    { title: '引用已删文件', content: '文件早没了。', files: [deadAbs, 'src/gone.ts'] },
+    { workspace: ws },
+  ).record;
+
+  settings.set({ briefingLimit: 2 }); // 12 条 active > 2×5，应亮
+  const res = await call('GET', '/health', { query: { workspace: ws } });
+  assert.equal(res.status, 200);
+  const pair = res.body.health.contradictions.find((c) => c.a === drop.id && c.b === keep.id);
+  assert.ok(pair, '应报 pnpm/npm 疑似矛盾对');
+  assert.ok(pair.hint.includes('pnpm'), 'hint 带对方关键词');
+  assert.equal(res.body.health.overBudget, true, '超过 briefingLimit×5 应亮');
+  assert.ok(res.body.health.overBudgetAdvice.includes('briefingLimit'), '应带建议文案');
+  const deadRow = res.body.health.deadFiles.find((d) => d.id === deadRel.id);
+  assert.ok(deadRow, '应报 files 全失效条目');
+  assert.deepEqual(deadRow.files, [deadAbs, 'src/gone.ts'], '失效路径按原始形态返回');
+
+  settings.set({ briefingLimit: 12 }); // 还原默认：12 条 < 60，不亮
+  const normal = await call('GET', '/health', { query: { workspace: ws } });
+  assert.equal(normal.body.health.overBudget, false, '未超限不应亮');
+  assert.equal(normal.body.health.overBudgetAdvice, '');
 });
 
 await test('POST /dream：合并重复簇、报告过期，画像未触发时不报错', async () => {

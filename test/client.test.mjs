@@ -1131,6 +1131,13 @@ await test('维护 tab：KPI 与体检结果渲染，/health 真被调用', asyn
     { workspace: WS },
   ).record;
   for (let i = 0; i < 3; i += 1) store.markExposed([exposed.id], { workspace: WS });
+  /* 体检新增项的种子：一对真矛盾 + 一条挂靠文件已不存在的记忆。 */
+  store.upsert({ title: '面板包管理器约定', content: '这个项目统一使用 pnpm 安装依赖。', tags: ['tooling'] }, { workspace: WS });
+  store.upsert({ title: '面板包管理器迁移', content: '不要再用 pnpm 了，改用 npm 安装依赖。', tags: ['tooling'] }, { workspace: WS });
+  store.upsert(
+    { title: '面板失效文件引用', content: '挂在一个已不存在的文件上的记忆。', files: [path.join(tmp, 'gone-folder', 'gone.ts')] },
+    { workspace: WS },
+  );
   renderPage('zh');
   await settle(8);
   await clickTab('tabMaintain');
@@ -1140,6 +1147,11 @@ await test('维护 tab：KPI 与体检结果渲染，/health 真被调用', asyn
   assert.match(body, new RegExp(escapeRe(makeT('zh')('healthProblems'))), '缺少体检结果区');
   assert.match(body, new RegExp(escapeRe(makeT('zh')('healthExposedUnused'))), '缺少曝光未用提示');
   assert.match(body, /面板曝光未用示例 ×3/, '应显示曝光次数');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('healthContradictions'))), '缺少疑似矛盾区');
+  /* a 是含否定句的一方（迁移），b 是被指涉的一方（约定），面板按 a ⇄ b 展示。 */
+  assert.match(body, /面板包管理器迁移 ⇄ 面板包管理器约定/, '矛盾对应显示双方标题');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('healthDeadFiles'))), '缺少文件引用失效区');
+  assert.match(body, /面板失效文件引用/, '失效文件条目应显示标题');
   assert.ok(fetchCalls.some((call) => call.pathname === `${API_PREFIX}/health`), '/health 未被调用');
 });
 
@@ -1235,10 +1247,6 @@ await test('画像卡：段落带证据标签，没有证据的段标「未溯�
 
   renderPage('zh');
   await settle(8);
-  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
-  assert.ok(open, '缺少「展开画像」按钮');
-  mini.click(open);
-  await settle(6);
 
   const wsTitle = mini
     .findAll(
@@ -1354,15 +1362,10 @@ await test('画像卡：渲染、展开显示两份画像、编辑保存走 /por
     '/portrait 应随页面加载',
   );
 
-  /* 一层：展开画像卡 → 看到两份画像的子折叠行（正文不铺开）。 */
-  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
-  assert.ok(open, '缺少「展开画像」按钮');
-  mini.click(open);
-  await settle(6);
-
+  /* 平铺结构：两份画像的子折叠行直接可见（正文不铺开）。 */
   const opened = text();
-  assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceLabel'))), '展开后应有工作区画像子行');
-  assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '展开后应有全局画像子行');
+  assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitWorkspaceLabel'))), '应有工作区画像块');
+  assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '应有全局画像块');
   assert.match(opened, /v\d+/, '应显示版本号');
   assert.ok(!opened.includes('客户端测试背景。'), '子折叠默认收起，正文不应铺开');
 
@@ -1421,11 +1424,6 @@ await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/-
   renderPage('zh');
   await settle(8);
 
-  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
-  assert.ok(open, '缺少「展开画像」按钮');
-  mini.click(open);
-  await settle(6);
-
   const diffBtn = mini.findByText(view, makeT('zh')('portraitDiff'), 'button');
   assert.ok(diffBtn, '缺少「这次变了什么」按钮');
   mini.click(diffBtn);
@@ -1439,6 +1437,32 @@ await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/-
   assert.match(now, /v\d+ → v\d+/, '应显示版本区间');
   assert.match(now, /\+ 改过的背景。/, '应显示新增行');
   assert.match(now, /− 客户端测试背景。/, '应显示删除行');
+});
+
+await test('画像卡：工作区画像缺失时显示空态引导，不再套空壳双层折叠', async () => {
+  /* 删掉当前工作区的画像（portrait.json + PORTRAIT.md 正本，读画像会从 md 回落解析）；
+     全局画像保留 → 平铺后工作区位置应是引导而非空缺。 */
+  const walk = (folder) => {
+    for (const name of fs.readdirSync(folder)) {
+      const full = path.join(folder, name);
+      if (fs.statSync(full).isDirectory()) walk(full);
+      else if ((name === 'portrait.json' || name === 'PORTRAIT.md') && !full.includes('_global')) {
+        fs.rmSync(full, { force: true });
+      }
+    }
+  };
+  walk(tmp);
+  renderPage('zh');
+  await settle(8);
+
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitTitle'))), '缺少画像区标题');
+  assert.match(
+    body,
+    new RegExp(escapeRe(makeT('zh')('portraitWorkspaceEmptyHint'))),
+    '工作区画像缺失时应显示空态引导',
+  );
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '全局画像块应照常显示');
 });
 
 await test('画像卡：重写按钮触发 /portrait/rewrite，完成后出提示', async () => {
@@ -1468,9 +1492,6 @@ await test('画像卡：待审重写稿——预览与批准', async () => {
   fetchCalls.length = 0;
   renderPage('zh');
   await settle(8);
-  const open = mini.findByText(view, makeT('zh')('portraitOpen'), 'button');
-  mini.click(open);
-  await settle(6);
   assert.match(text(), new RegExp(escapeRe(makeT('zh')('portraitDraftHint'))), '应有待审提示');
 
   const preview = mini.findByText(view, makeT('zh')('portraitDraftView'), 'button');

@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-505%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-535%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -280,7 +280,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 505 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 535 条断言
 git add -A; git commit -m "feat: …"
 git push origin lab                    # 推 lab，CI 立刻发预发布
 
@@ -428,9 +428,13 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `disabledWorkspaces` | `[]` | 停用自动记忆的工作区（绝对路径，归一后精确匹配）：不注入、不自动提炼；工具仍可手动读写。事故排查时也用它把一次性工作区摘出去 |
 | `mirror` | `true` | 在工作区写 `.dsh-memory/MEMORY.md` |
 | `briefing` | `true` | 会话开始注入记忆简报 |
-| `briefMode` | `"index"` | `index` 一行一条索引（省 token）；`full` 标题+正文摘录 |
+| `briefMode` | `"index"` | `index` 一行一条索引（省 token）；`full` 标题+正文摘录；`portrait` 画像全量 + 索引清单 |
 | `briefingLimit` | `12` | 注入条数上限（1–50） |
 | `briefingMaxChars` | `2000` | 注入字数上限（200–20000） |
+| `portraitMaxChars` | `1400` | 画像注入的字数预算（工作区 + 全局合计；仅 `briefMode=portrait` 生效，200–8000） |
+| `discipline` | `true` | 注入「记忆纪律」一段（何时写什么、对话内指令触发规则） |
+| `rewriteMode` | `"direct"` | 画像重写写入方式：`direct` 直接落库；`draft` 先存待审稿，面板批准后才生效 |
+| `journalDays` | `14` | 画像重写时读取最近多少天的日志作为原料（1–90） |
 | `turnRecall` | `true` | 轮末按当轮内容召回相关记忆进下一轮 |
 | `turnRecallLimit` | `3` | 每轮召回条数（1–10） |
 | `sectionOrder` | `550` | 注入段落在系统提示里的位置 |
@@ -443,16 +447,21 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `maxPerTurn` | `5` | 每次最多落库条数 |
 | `maxTranscriptChars` | `6000` | 送给模型的对白摘录上限 |
 | `dedupe` | `true` | 保存时合并相似记忆 |
+| `qualityGate` | `true` | 质量闸门：自动提炼 / agent 主动写入的低分条目（<30）直接归档，不进简报 |
 | `redactSecrets` | `true` | 写入安全：密钥扫描与脱敏（命中替换为 `[REDACTED:*]` 并记 `redactions`） |
 | `quarantineTainted` | `true` | 写入安全：非 user 来源命中注入模式（taint）时自动隔离成草稿 |
 | `pathRecall` | `true` | 路径 JIT：工具触达 `files` 挂靠的文件时，相关记忆在下一步尾部注入 |
 | `pathRecallLimit` | `3` | 每次路径召回最多注入几条（1–10） |
 | `sessionSearch` | `true` | 会话索引：每轮用户发言原文落 `sessions.jsonl`，`action=sessions` 溯源 |
 | `compactionSalvage` | `true` | 压缩协同：宿主压缩上下文时把摘要照录进当天工作日志 |
+| `captureSubagents` | `false` | 子代理会话（origin=subagent）是否也参与自动提炼；默认否，避免把派活的中间过程写成记忆 |
+| `falsifierReviewDays` | `90` | 复审周期（天）：带失效条件的记忆默认多少天后进复审队列（1–3650） |
 
 ## HTTP 契约
 
 `/memory/api` 前缀，JSON 信封成功 `{ok:true,…}` / 失败 `{ok:false,error,detail?}`。
+请求体超 4MB 回 `413 payload_too_large`；显式传入的 `workspace` 必须是已注册工作区
+（当前活动工作区或落过库的工作区），否则回 `400 invalid_workspace`。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -464,7 +473,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/bulk` | `delete` / `archive` / `unarchive` / `pin` / `unpin` |
 | POST | `/delete` | 删一条 |
 | POST | `/settings` | 写设置 |
-| GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数（只报告） |
+| GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数、疑似矛盾对（词法只报告）、files 引用失效、overBudget 超预算信号（只报告） |
 | POST | `/health/resolve` | 一键处理：`merge`（合并簇）/ `archive`（归档过期）/ `unlink`（摘除断链） |
 | GET | `/timeline` | 全部记忆（含归档、不含草稿）按更新时间倒序 |
 | GET | `/portrait` | 当前画像（工作区 + 全局）、版本列表、段落定义 |
@@ -479,7 +488,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/queue/approve` | 批准草稿（可带编辑字段；草稿带 `supersedes` 时兑现版本链） |
 | POST | `/queue/reject` | 拒绝草稿（默认删除，`mode: archive` 归档留底） |
 | POST | `/supersede/rollback` | 版本链回滚：传新条 id 恢复旧条，或传旧条 id 撤销推翻 |
-| GET | `/export` | 导出当前工作区与全局**条目**（字段齐全，含 `falsifier` / `reviewAt`；不含画像 / 日志 / 派生链） |
+| GET | `/export` | 导出当前工作区与全局**条目**（字段齐全，含 `falsifier` / `reviewAt`）；`?full=1` 连画像 / 派生链 / 最近 30 天日志一起导出，`/import` 自动识别回灌 |
 | POST | `/import` | 导入（备份载荷、纯文本，或 `path`/`paths` 指到本机既有记忆文件） |
 | GET | `/journal` | 读最近 N 天工作日志（`days`，1-30，默认 3） |
 | POST | `/journal` | 写一条工作日志（`date` 可指定，默认当天） |
@@ -566,9 +575,9 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、505 项：
+14 个套件、535 项：
 
-- `store` 122 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
+- `store` 143 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
   草稿四不可见、重复簇聚类与合并、体检（重复/过期/断链/草稿）、索引简报预算、镜像版本链线索、keywords 加权、unlink；
   v0.5.0：日志层 journal（按天 `journal/YYYY-MM-DD.md`、只追加，是画像重写的上游原料）、画像的读写与草稿；
@@ -577,8 +586,9 @@ npm test          # 或 node test/run-all.mjs
   `search` / `list` 集成、`recallByFiles` 路径召回（全路径 > 后缀 > 同名、limit / excludeIds / 盘符归一），
   20 条记忆 × 10 条查询的冒烟评测，以及 54 条记忆 × 60 条查询的硬评测（同义改写 / 路径代码 / 近邻干扰 /
   多跳 / 否定 / 标签各 10 条）。硬评测自测：Recall@5 1.000、MRR@10 0.930；词重叠基线 0.967 / 0.907；
-  基线失败的 3 条硬样例上 1.000 vs 0.333。详见 `docs/retrieval-eval-2026-10-20.md`。
-- `security` 9 项 —— 写入安全：100 条密钥样本全部脱敏（原文零泄漏）、20 条注入样本全部命中、
+  基线失败的 3 条硬样例上 1.000 vs 0.333。自测口径：静态集自建、本地离线打分、同一查询集上对比
+  词重叠基线，无人工标注与外部基准。详见 `docs/retrieval-eval-2026-10-20.md`。
+- `security` 16 项 —— 写入安全：100 条密钥样本全部脱敏（原文零泄漏）、20 条注入样本全部命中、
   20 条正常文本零误报、trust 分级（manual→user，模型不能自封）、非 user 来源的注入内容自动隔离成草稿、
   批准后不被反复打回。
 - `derivation` 14 项 —— 跨层派生链：画像层记下它引用了哪些记忆、源被归档 / 被改写 / 被删时标脏；
@@ -594,20 +604,20 @@ npm test          # 或 node test/run-all.mjs
   Claude 的索引页剔除）。
 - `distill` 41 项 —— 摘录裁剪、模型输出解析容错、触发条件、显式提示词识别；v0.3.0：
   keywords/supersedes 解析、user 类别强制 global、提示词 v2 指引、existingRecords 带 id。
-- `api` 71 项 —— 42 个端点（40 条路径）、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
+- `api` 77 项 —— 42 个端点（40 条路径）、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
   /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
   /save 带 supersedes 与 /supersede/rollback；v0.6：`GET /portrait/diff`（上一版 → 当前版的逐段 diff）。
-- `host` 10 项 —— 导出形状、Config 默认值与越界校验。
-- `activate` 45 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
+- `host` 12 项 —— 导出形状、Config 默认值与越界校验。
+- `activate` 47 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
   工具 save/search/get/forget、全文简报装不下时明说「只列了 N / M 条」、`/memory/api/*` 路由真的应答
   且守好 403/404、手动提炼端到端、面板保存落到工作区镜像、既有记忆扫描导入、数据目录不可用不炸外壳；
   v0.3.0：索引简报（带 id 不展开正文 + full 模式对照）、轮末召回（召回块出现、连续两轮不重复）、
   captureMode=draft 全流程（进队列 → 不进列表 → 日志 drafted → 批准生效）、
   工具 save 带 supersedes（旧条归档、get 展示版本链）；v0.5.0：`action=journal` 写入回读与空文本拒绝、
   journal API（写 / 读 / 日期校验）、画像重写（draft 进待审、direct 直接落库）、提示段里的写入纪律。
-- `briefing-stability` 14 项 —— 会话级冻结快照、确定性排序、轮末召回的尾部注入与去重；
+- `briefing-stability` 15 项 —— 会话级冻结快照、确定性排序、轮末召回的尾部注入与去重；
   改检索算法时用它守住「系统提示字节稳定」。
-- `client` 45 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
+- `client` 48 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
   接到真实 `store` + `api` 上驱动交互（列表 / 搜索 / 新建 / 删除 / 置顶 / 中英文切换 / 后端报错）；
   档案视图的分区与两种排布（整篇文档 / 按标签分组 / 按类型分组、分区与分组折叠、组头「整合」、
   整篇编辑、整理永远按标签算、开关即时落库；v0.3.1：档案与记忆空间合并成同一个视图）；v0.3.3：变化横幅与注入预览（/briefing-preview 被调用、✓ 简报标记、横幅展开）、时间线并入档案排布
@@ -625,11 +635,11 @@ npm test          # 或 node test/run-all.mjs
 
 ## 边界
 
-- **备份载荷只覆盖条目，整库快照才覆盖全部**：`GET /export` 的载荷只有 `records`（条目字段含
-  `falsifier` / `reviewAt` 都会原样回灌），**画像、派生链、工作日志、注入审计都不在载荷里**。实测：
-  恢复到一个空库后 `portrait()` 返回 null、派生链 0 条——换机之后需要重新写画像。
-  要连画像 / 派生链 / 日志一起搬，用 `<库根>/backups/` 里的整库快照（每天一次 + 每次 Dream 前，
-  轮转 7 份），把某一份目录整个拷回去即可；`/export` 仍然只是「条目级」导出。
+- **普通导出只覆盖条目，`?full=1` 才连画像 / 派生链 / 日志**：`GET /export` 默认载荷只有 `records`
+  （条目字段含 `falsifier` / `reviewAt` 都会原样回灌）；`GET /export?full=1` 额外并入当前画像、
+  派生链与最近 30 天工作日志，`POST /import` 自动识别 full 载荷分流回灌（画像空不覆盖既有、
+  派生链按 `updatedAt` 合并、日志去重追加；注入审计不在任何载荷里——它是 append-only 运维凭据）。
+  实测 round-trip：导出 → 空库导入后 `portrait()` 与 `derivationList()` 均非空。
 - **派生链只审源端，不审目标端**：它回答的是「这层派生所依据的记忆现在还成不成立」，
   不回答「AGENTS.md 里那几行还在不在」。手工把晋升行或整个托管块删掉，链上仍显示 `fresh`
   （已用脚本实测确认）。要做目标端完整性需要另加一步「块内容回读比对」，目前未实现。

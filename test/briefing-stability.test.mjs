@@ -322,7 +322,7 @@ await test('快照边界：会话 id 被复用即重建；快照最多 60 个（
 });
 
 await test('工作区换了就重建；setting 改了模式也重建', async () => {
-  const { tool, exec, session, render, route } = activate();
+  const { calls, tool, exec, session, render, route } = activate();
   await tool.execute(memory('换工作区用的记忆'), exec);
   const base = render();
   assert.match(base, /换工作区用的记忆/);
@@ -333,6 +333,9 @@ await test('工作区换了就重建；setting 改了模式也重建', async () 
   assert.doesNotMatch(moved, /换工作区用的记忆/, '别的工作区不该带上这条');
   assert.equal(render({ ...session, header: { cwd: other } }), moved, '新工作区自己也要冻住');
 
+  /* P2-1 白名单：/state 显式 workspace 必须注册过——用独立会话 id 登记 other，
+     不动主会话的冻结快照（同 id 的 session/created 会按复用规则清快照）。 */
+  calls.events.find(([name]) => name === 'session/created')[1]({ id: 'ws-switch-session', header: { cwd: other } });
   const switched = await callRoute(
     route,
     `/state?workspace=${encodeURIComponent(other)}`,
@@ -505,6 +508,47 @@ await test('/briefing-preview：静态部分不含召回；补丁版预览的 st
 });
 
 /* ------------------------------------------------------------------ */
+
+await test('主库损坏（EDAMAGED）时简报注入不抛错：本轮空段，异常不出插件', async () => {
+  const { calls, tool, exec, session, render, dir } = activate();
+  await tool.execute(memory('损坏兜底用记忆'), exec);
+  const first = render();
+  assert.match(first, /损坏兜底用记忆/, '前置：库完好时简报有内容');
+
+  /* 把主库文件写坏（strict 模式会备份后抛 EDAMAGED，见 store 层）。 */
+  const libFile = [];
+  const walk = (folder) => {
+    for (const name of fs.readdirSync(folder)) {
+      const full = path.join(folder, name);
+      if (fs.statSync(full).isDirectory()) walk(full);
+      else if (name === 'memories.json') libFile.push(full);
+    }
+  };
+  walk(dir);
+  assert.ok(libFile.length >= 1, '应能找到主库文件');
+  for (const file of libFile) fs.writeFileSync(file, '{corrupted!!', 'utf8');
+
+  /* 系统提示路径：不抛错、给空段——异常绝不能顺着 section text 回调抛回宿主。 */
+  let text = '';
+  let threw = null;
+  try {
+    text = render();
+  } catch (error) {
+    threw = error;
+  }
+  assert.equal(threw, null, `render 不应抛错：${threw?.message}`);
+  assert.equal(text, '', '损坏库的简报应是空段');
+
+  /* 轮末召回同样不炸（内部已兜底），事件回调原样跑完。 */
+  const turnEnd = calls.events.find(([name]) => name === 'session/event')[1];
+  let eventThrew = null;
+  try {
+    turnEnd(session, { type: 'turn/end', turn: 9 });
+  } catch (error) {
+    eventThrew = error;
+  }
+  assert.equal(eventThrew, null, `turn/end 不应抛错：${eventThrew?.message}`);
+});
 
 fs.rmSync(tmp, { recursive: true, force: true });
 
