@@ -1105,6 +1105,200 @@ test('findDuplicateClusters + consolidateCluster：相似条目聚类并合并�
   assert.equal(s.findDuplicateClusters({ workspace: ws }).length, 0);
 });
 
+test('红线不参与重复簇与合并：直接合并返回 redline_protected', () => {
+  const s = iso('redline-dup');
+  const ws = makeWorkspace('v03-redline-dup');
+  const a = s.upsert(
+    { title: '绝不删除生产数据', content: '任何情况下都不得删除生产环境的数据。', category: 'constraint', source: 'user' },
+    { workspace: ws },
+  ).record;
+  const b = s.upsert(
+    { title: '禁止删除生产数据', content: '任何情况下都不得删除生产环境的数据。', category: 'constraint', source: 'user' },
+    { workspace: ws },
+  ).record;
+
+  assert.equal(
+    s.findDuplicateClusters({ workspace: ws }).some((group) => group.some((r) => r.id === a.id)),
+    false,
+    '红线不应进入自动重复簇',
+  );
+  const merged = s.consolidateCluster([a.id, b.id], { workspace: ws });
+  assert.equal(merged.error, 'redline_protected', '直接合并红线必须被拒绝');
+  assert.equal(s.get(a.id, { workspace: ws }).archived, false, '红线甲不应归档');
+  assert.equal(s.get(b.id, { workspace: ws }).archived, false, '红线乙不应归档');
+});
+
+test('consolidateCluster：置顶来源合并后新记录仍置顶', () => {
+  const s = iso('dup-pinned');
+  const ws = makeWorkspace('v03-dup-pinned');
+  const a = s.upsert(
+    { title: '置顶重复甲', content: '发布前必须跑完整个测试套件再推。', pinned: true },
+    { workspace: ws },
+  ).record;
+  const b = s.upsert(
+    { title: '置顶重复乙', content: '发布前必须跑完整个测试套件再推。', pinned: true },
+    { workspace: ws },
+  ).record;
+
+  const clusters = s.findDuplicateClusters({ workspace: ws });
+  assert.equal(clusters.length, 1, '应聚出一个重复簇');
+  const merged = s.consolidateCluster(clusters[0].map((r) => r.id), { workspace: ws });
+  assert.ok(merged.ok, '合并应成功');
+  assert.equal(merged.record.pinned, true, '合并结果应继承置顶');
+  assert.equal(s.get(a.id, { workspace: ws }).archived, true, '来源甲应归档');
+  assert.equal(s.get(b.id, { workspace: ws }).archived, true, '来源乙应归档');
+});
+
+test('近似但语义相反的条目不进重复簇，直接合并返回 contradiction_pair', () => {
+  const s = iso('contradiction-merge');
+  const ws = makeWorkspace('v03-contradiction-merge');
+  const a = s.upsert(
+    { title: '项目统一使用 pnpm 安装依赖。', content: '项目统一使用 pnpm 安装依赖。', tags: ['tooling'] },
+    { workspace: ws },
+  ).record;
+  const b = s.upsert(
+    { title: '项目不要统一使用 pnpm 安装依赖。', content: '项目不要统一使用 pnpm 安装依赖。', tags: ['tooling'] },
+    { workspace: ws },
+  ).record;
+
+  assert.equal(s.findDuplicateClusters({ workspace: ws }).length, 0, '矛盾对不应进入重复簇');
+  const merged = s.consolidateCluster([a.id, b.id], { workspace: ws });
+  assert.equal(merged.error, 'contradiction_pair', '直接合并矛盾对必须被拒绝');
+  assert.equal(s.get(a.id, { workspace: ws }).archived, false, '矛盾甲不应归档');
+  assert.equal(s.get(b.id, { workspace: ws }).archived, false, '矛盾乙不应归档');
+});
+
+test('红线改稿：旧措辞入历史，回滚恢复且重启不丢', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-memory-redline-audit-'));
+  const s = createMemoryStore({ dir, mirror: false });
+  const ws = makeWorkspace('v03-redline-audit');
+  const red = s.upsert(
+    { title: '绝不覆盖生产库', content: '任何情况下都不得覆盖生产数据库。', category: 'constraint', source: 'user' },
+    { workspace: ws },
+  ).record;
+
+  const edit = s.updateRedline(
+    red.id,
+    { title: '绝不覆盖生产库', content: '任何情况下都不得覆盖生产环境数据库。' },
+    { workspace: ws },
+  );
+  assert.ok(edit.ok, '红线改稿应成功');
+  assert.equal(edit.record.id, red.id, '改稿不应换 id');
+  assert.equal(edit.record.redlineHistory.length, 1);
+  assert.equal(edit.record.redlineHistory[0].content, '任何情况下都不得覆盖生产数据库。');
+
+  const fresh = createMemoryStore({ dir, mirror: false });
+  const reloaded = fresh.get(red.id, { workspace: ws });
+  assert.equal(reloaded.redlineHistory.length, 1, '重启后红线历史应保留');
+
+  const back = s.rollbackRedline(red.id, 0, { workspace: ws });
+  assert.ok(back.ok, '回滚应成功');
+  assert.equal(back.record.content, '任何情况下都不得覆盖生产数据库。');
+  assert.ok(
+    back.record.redlineHistory.some((version) => version.content === '任何情况下都不得覆盖生产环境数据库。'),
+    '回滚后当前版本应写回历史',
+  );
+});
+
+test('红线冲突检查：正反措辞命中，自身与无关内容不误报', () => {
+  const s = iso('redline-conflict');
+  const ws = makeWorkspace('v03-redline-conflict');
+  const existing = s.upsert(
+    { title: '项目统一使用 pnpm 安装依赖。', content: '项目统一使用 pnpm 安装依赖。', category: 'constraint', source: 'user' },
+    { workspace: ws },
+  ).record;
+
+  const hit = s.redlineConflicts({
+    workspace: ws,
+    title: '项目不要统一使用 pnpm 安装依赖。',
+    content: '项目不要统一使用 pnpm 安装依赖。',
+  });
+  assert.ok(hit.ok);
+  assert.equal(hit.conflicts.length, 1, '正反措辞应命中');
+  assert.equal(hit.conflicts[0].id, existing.id);
+
+  const self = s.redlineConflicts({
+    workspace: ws,
+    title: existing.title,
+    content: existing.content,
+    excludeId: existing.id,
+  });
+  assert.equal(self.conflicts.length, 0, '编辑自身时不应报自冲突');
+
+  const unrelated = s.redlineConflicts({
+    workspace: ws,
+    title: '数据库必须每天备份。',
+    content: '数据库必须每天备份。',
+  });
+  assert.equal(unrelated.conflicts.length, 0, '无关红线不应误报');
+});
+
+test('时序矛盾：保留新结论、归档旧结论；红线/置顶/用户旧条不自动处理', () => {
+  const s = iso('time-order');
+  const ws = makeWorkspace('v03-time-order');
+  const add = (title, content, source, createdAt, tags, extra = {}) =>
+    s.upsert({ title, content, source, createdAt, tags, ...extra }, { workspace: ws }).record;
+
+  const oldSafe = add('部署前必须跑完整测试。', '部署前必须跑完整测试。', 'agent', '2026-01-01T00:00:00.000Z', ['deploy']);
+  const newSafe = add('部署前不要跑完整测试。', '部署前不要跑完整测试。', 'manual', '2026-02-01T00:00:00.000Z', ['deploy']);
+  const safe = s.resolveContradictionsByTime({ workspace: ws });
+  assert.equal(safe.resolved.length, 1, '可安全判断的矛盾应按时序处理');
+  assert.equal(safe.resolved[0].archivedId, oldSafe.id);
+  assert.equal(safe.resolved[0].keptId, newSafe.id);
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, true, '旧结论应归档');
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).supersededBy, newSafe.id, '旧结论应留下可回滚链接');
+  assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false, '新结论应保留');
+
+  const oldUser = add('数据库只读。', '数据库只读。', 'manual', '2026-01-01T00:00:00.000Z', ['db']);
+  add('数据库不要只读。', '数据库不要只读。', 'agent', '2026-02-01T00:00:00.000Z', ['db']);
+  const userGuard = s.resolveContradictionsByTime({ workspace: ws });
+  assert.ok(
+    userGuard.pending.some(
+      (pair) => pair.reason === 'user_older' && (pair.a === oldUser.id || pair.b === oldUser.id),
+    ),
+    '旧条是用户手写、新条是模型时应保留待确认',
+  );
+  assert.equal(s.get(oldUser.id, { workspace: ws }).archived, false);
+
+  const oldPinned = add(
+    '发布前必须打标签。',
+    '发布前必须打标签。',
+    'agent',
+    '2026-01-01T00:00:00.000Z',
+    ['release'],
+    { pinned: true },
+  );
+  add('发布前不要打标签。', '发布前不要打标签。', 'manual', '2026-02-01T00:00:00.000Z', ['release']);
+  assert.ok(
+    s.resolveContradictionsByTime({ workspace: ws }).pending.some((pair) => pair.reason === 'pinned_older'),
+    '旧条置顶时应保留待确认',
+  );
+  assert.equal(s.get(oldPinned.id, { workspace: ws }).archived, false);
+
+  const oldRedline = add(
+    '任何情况下都禁止覆盖生产环境数据库。',
+    '任何情况下都禁止覆盖生产环境数据库。',
+    'manual',
+    '2026-01-01T00:00:00.000Z',
+    ['prod'],
+    { category: 'constraint' },
+  );
+  add(
+    '任何情况下都覆盖生产环境数据库。',
+    '任何情况下都覆盖生产环境数据库。',
+    'manual',
+    '2026-02-01T00:00:00.000Z',
+    ['prod'],
+  );
+  assert.ok(
+    s.resolveContradictionsByTime({ workspace: ws }).pending.some(
+      (pair) => pair.reason === 'redline_protected',
+    ),
+    '红线旧条应保留待确认',
+  );
+  assert.equal(s.get(oldRedline.id, { workspace: ws }).archived, false);
+});
+
 test('health：重复簇 / 过期未用 / 断链 / 草稿数', () => {
   const s = iso('health');
   const ws = makeWorkspace('v03-health');

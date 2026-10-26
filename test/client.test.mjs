@@ -485,7 +485,119 @@ await test('页面确实读了宿主 /state 与 /list', () => {
   );
 });
 
+await test('顶部只留记忆/维护/设置三个页签，自动提炼并入维护', async () => {
+  renderPage('zh');
+  await settle(8);
+  const tabs = mini.findAll(
+    view,
+    (node) => node.type === 'button' && String(node.props.className || '').split(/\s+/).includes('dshmem_tab'),
+  );
+  assert.equal(tabs.length, 3, '顶层页签应只剩三个');
+  const labels = tabs.map((node) => mini.textOf(node).trim());
+  assert.ok(labels.some((label) => label.startsWith(makeT('zh')('tabMemories'))));
+  assert.ok(labels.some((label) => label.startsWith(makeT('zh')('tabMaintain'))));
+  assert.ok(labels.some((label) => label.startsWith(makeT('zh')('tabSettings'))));
+  assert.ok(!labels.some((label) => label.includes(makeT('zh')('tabCapture'))), '自动提炼不应再是顶层页签');
+});
+
+await test('原料与依据抽屉默认收起，点击后展开', async () => {
+  renderPage('zh');
+  await settle(8);
+  const drawer = () =>
+    mini.findAll(
+      view,
+      (node) => String(node.props?.className || '').split(/\s+/).includes('dshmem_toolsBody'),
+    )[0];
+  assert.ok(drawer(), '缺少原料抽屉');
+  assert.equal(drawer().props['data-open'], '0', '原料抽屉应默认收起');
+  const head = mini.findAll(
+    view,
+    (node) => String(node.props?.className || '').split(/\s+/).includes('dshmem_toolsHead'),
+  )[0];
+  assert.ok(head, '原料抽屉缺少标题行');
+  mini.click(head);
+  await settle(6);
+  assert.equal(drawer().props['data-open'], '1', '点击后应展开');
+});
+
+await test('红线空态提供「添加红线」，打开专用编辑器', async () => {
+  renderPage('zh');
+  await settle(8);
+  const add = mini.findByText(view, makeT('zh')('redlineAdd'), 'button');
+  assert.ok(add, '缺少添加红线入口');
+  mini.click(add);
+  await settle(6);
+  assert.ok(
+    mini.findAllByTag(view, 'input').some((node) => node.props.placeholder === makeT('zh')('redlineTitlePh')),
+    '添加红线应打开专用编辑器',
+  );
+  assert.ok(
+    mini.findAllByTag(view, 'textarea').some((node) => node.props.placeholder === makeT('zh')('redlineContentPh')),
+    '添加红线应提供正文输入',
+  );
+  mini.click(mini.findByText(view, makeT('zh')('cancel'), 'button'));
+  await settle(4);
+});
+
+await test('首页「需要处理」显示待审数量并跳到维护', async () => {
+  const draft = store.upsert(
+    { title: '注意力草稿', content: '这是一条等待审批的草稿内容。', status: 'draft', source: 'auto' },
+    { workspace: WS },
+  ).record;
+  renderPage('zh');
+  await settle(16);
+  const body = text();
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('attentionTitle'))), '缺少「需要处理」入口');
+  const go = mini.findByText(view, makeT('zh')('attentionGo'), 'button');
+  assert.ok(go, '有处理项时应给「去整理」按钮');
+  mini.click(go);
+  await settle(8);
+  const activeTab = mini.findAll(
+    view,
+    (node) => node.type === 'button' && String(node.props.className || '').includes('dshmem_tab_on'),
+  )[0];
+  assert.ok(activeTab && mini.textOf(activeTab).includes(makeT('zh')('tabMaintain')), '应切到维护页');
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/queue/reject`,
+    body: { workspace: WS, id: draft.id },
+  });
+});
+
+await test('需要处理收件箱：展开后可直接批准草稿', async () => {
+  const draft = store.upsert(
+    { title: '收件箱草稿', content: '这是一条可以就地批准的草稿。', status: 'draft', source: 'auto' },
+    { workspace: WS },
+  ).record;
+  renderPage('zh');
+  await settle(16);
+  const main = mini.findAll(
+    view,
+    (node) => String(node.props?.className || '').split(/\s+/).includes('dshmem_attentionMain'),
+  )[0];
+  assert.ok(main, '缺少「需要处理」行');
+  mini.click(main);
+  await settle(16);
+  assert.match(text(), /收件箱草稿/, '展开后应列出待审草稿');
+  const approve = mini.findByText(view, makeT('zh')('queueApprove'), 'button');
+  assert.ok(approve, '收件箱缺少批准按钮');
+  mini.click(approve);
+  await settle(16);
+  assert.equal(
+    store.get(draft.id, { workspace: WS, includeDrafts: true }).status,
+    'active',
+    '收件箱批准后草稿应转正',
+  );
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/delete`,
+    body: { workspace: WS, id: draft.id },
+  });
+});
+
 /* 卡片、标签云、删除/置顶/新建按钮都只在列表视图里，下面这一组先切过去。 */
+renderPage('zh');
+await settle(8);
 await switchView('viewList');
 
 await test('列表带上工作区、范围与类别标签', () => {
@@ -615,10 +727,21 @@ await test('空表单提交被拦下并提示', async () => {
 
 /* ---------------- 其他两个 tab ---------------- */
 
-await test('切到自动提炼页会渲染并调用 /capture', async () => {
-  const tab = mini.findByText(view, makeT('zh')('tabCapture'), 'button');
-  assert.ok(tab, '找不到自动提炼 tab');
-  mini.click(tab);
+await test('自动提炼并进维护页：展开分组后能手动触发 /capture', async () => {
+  const maintainTab = mini
+    .findAll(view, (node) => node.type === 'button' && mini.textOf(node).includes(makeT('zh')('tabMaintain')))
+    .find((node) => mini.textOf(node).trim().startsWith(makeT('zh')('tabMaintain')));
+  assert.ok(maintainTab, '缺少维护 tab');
+  mini.click(maintainTab);
+  await settle(8);
+  const captureHead = mini
+    .findAll(
+      view,
+      (node) => String(node.props?.className || '').split(/\s+/).includes('dshmem_blockGroupHead'),
+    )
+    .find((node) => mini.textOf(node).includes(makeT('zh')('tabCapture')));
+  assert.ok(captureHead, '维护页缺少自动提炼分组');
+  mini.click(captureHead);
   await settle(4);
   const run = mini.findByText(view, makeT('zh')('captureNow'), 'button');
   assert.ok(run, '找不到提炼按钮');
@@ -939,6 +1062,66 @@ await test('整理：每个同标签分组各自合并，原条目归档', async
   assert.match(text(), new RegExp(escapeRe(makeT('zh')('tidied').slice(0, 3))));
 });
 
+await test('整理/整合不把红线当普通条目合并', async () => {
+  const red = store.upsert(
+    { title: '红线不参与整合', content: '任何情况下都不得删除生产数据。', category: 'constraint', tags: ['redguard'], source: 'user' },
+    { workspace: WS },
+  ).record;
+  for (const seed of [
+    { title: '可整合甲', content: '甲的内容', category: 'fact', tags: ['redguard'] },
+    { title: '可整合乙', content: '乙的内容', category: 'fact', tags: ['redguard'] },
+  ]) {
+    await api.handle({
+      method: 'POST',
+      pathname: `${API_PREFIX}/save`,
+      body: { workspace: WS, source: 'manual', ...seed },
+    });
+  }
+
+  renderPage('zh');
+  await settle(10);
+  await setLayout('tag');
+  const group = mini
+    .findAll(view, byClass('dshmem_group'))
+    .find((node) => mini.textOf(node).includes('#redguard'));
+  assert.ok(group, '找不到 redguard 分组');
+  const consolidate = mini.findByText(group, makeT('zh')('consolidate'), 'button');
+  assert.ok(consolidate, '两条可合并 + 一条红线时仍应有整合入口');
+  mini.click(consolidate);
+  await settle(6);
+
+  const contentArea = mini
+    .findAllByTag(view, 'textarea')
+    .find((node) => node.props.placeholder === makeT('zh')('fContentPh'));
+  assert.ok(contentArea, '整合没有打开编辑表单');
+  assert.ok(
+    contentArea.props.value.includes('可整合甲') && contentArea.props.value.includes('可整合乙'),
+    '可合并条目应进入整合稿',
+  );
+  assert.ok(
+    !contentArea.props.value.includes('红线不参与整合') && !contentArea.props.value.includes('不得删除生产数据'),
+    '红线内容不应进入整合稿',
+  );
+  mini.click(mini.findByText(view, makeT('zh')('cancel'), 'button'));
+  await settle(4);
+
+  mini.click(mini.findByText(view, makeT('zh')('tidy'), 'button'));
+  await settle(20);
+  const all = store.list({ workspace: WS, includeArchived: true }).records;
+  assert.equal(store.get(red.id, { workspace: WS }).archived, false, '红线不应被整理归档');
+  const merged = all.find((record) => record.title === 'redguard' && !record.archived);
+  assert.ok(merged, '整理应合并两条可合并记忆');
+  assert.ok(
+    !merged.content.includes('红线不参与整合') && !merged.content.includes('不得删除生产数据'),
+    '红线内容不应进入整理稿',
+  );
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/delete`,
+    body: { workspace: WS, id: red.id, overrideRedline: true },
+  });
+});
+
 await test('没有可整理的标签分组时直说，不发写请求', async () => {
   // 重新挂载：提示条靠 2600ms 定时器自动消失，复用上一页实例会让上一条提示的定时器
   // 正好在这次断言前把新提示清掉（实测确实被清掉）。新实例没有待触发的定时器。
@@ -950,6 +1133,33 @@ await test('没有可整理的标签分组时直说，不发写请求', async ()
   const made = fetchCalls.slice(writes).map((call) => call.pathname);
   assert.equal(made.length, 0, `没有可整的分组却发了请求：${made.join(', ')}`);
   assert.match(text(), new RegExp(escapeRe(makeT('zh')('tidyNothing').slice(0, 6))));
+});
+
+await test('整理跳过疑似矛盾的分组，不把正反结论揉成一条', async () => {
+  for (const seed of [
+    { title: '矛盾整理要', content: '项目统一使用 pnpm 安装依赖。', tags: ['contradict-tidy'] },
+    { title: '矛盾整理不要', content: '项目不要统一使用 pnpm 安装依赖。', tags: ['contradict-tidy'] },
+  ]) {
+    await api.handle({
+      method: 'POST',
+      pathname: `${API_PREFIX}/save`,
+      body: { workspace: WS, source: 'manual', ...seed },
+    });
+  }
+
+  renderPage('zh');
+  await settle(10);
+  mini.click(mini.findByText(view, makeT('zh')('tidy'), 'button'));
+  await settle(20);
+
+  const all = store.list({ workspace: WS, includeArchived: true }).records;
+  assert.ok(
+    !all.some((record) => record.title === 'contradict-tidy' && !record.archived),
+    '矛盾分组不应生成合并条',
+  );
+  for (const title of ['矛盾整理要', '矛盾整理不要']) {
+    assert.equal(all.find((record) => record.title === title).archived, false, `${title} 不应被归档`);
+  }
 });
 
 await test('档案页的两个开关即时写入设置（走 /settings）', async () => {
@@ -1181,6 +1391,122 @@ await test('维护页：Dream 按钮调用 /dream 并显示报告', async () => 
   assert.match(body, /Dream 完成/, '应有完成提示');
 });
 
+await test('维护页：Dream 画像不可用时跳过，真实失败显示明细', async () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'client-dream-skip-'));
+  const dreamStore = createMemoryStore({ dir, mirror: false });
+  const ws = path.join(tmp, 'client-dream-ws');
+  fs.mkdirSync(ws, { recursive: true });
+  dreamStore.upsert({ title: '客户端跳过重复甲', content: '客户端跳过重复内容' }, { workspace: ws });
+  dreamStore.upsert({ title: '客户端跳过重复乙', content: '客户端跳过重复内容' }, { workspace: ws });
+
+  const base = {
+    store: dreamStore,
+    settings,
+    activeWorkspace: () => ws,
+    listWorkspaces: () => [{ root: ws, key: 'k', count: 0, active: true }],
+  };
+  const skipApi = createApi({
+    ...base,
+    rewriteNow: async () => ({ ok: false, error: 'no_model_route', detail: '当前没有可用的模型路由' }),
+  });
+
+  activeApi = skipApi;
+  try {
+    renderPage('zh');
+    await settle(10);
+    await clickTab('tabMaintain');
+    await settle(8);
+    mini.click(mini.findByText(view, makeT('zh')('dreamRun'), 'button'));
+    await settle(16);
+
+    const body = text();
+    assert.match(body, /合并 1 簇/, '画像跳过不应影响合并');
+    assert.match(
+      body,
+      new RegExp(
+        escapeRe(
+          makeT('zh')('dreamPortraitSkipped').replace('{reason}', makeT('zh')('dreamSkipNoRoute')),
+        ),
+      ),
+      '无模型会话应显示跳过原因',
+    );
+    assert.doesNotMatch(body, /步出错/, '无模型会话不应算失败');
+
+    dreamStore.upsert({ title: '客户端失败重复甲', content: '客户端失败重复内容' }, { workspace: ws });
+    dreamStore.upsert({ title: '客户端失败重复乙', content: '客户端失败重复内容' }, { workspace: ws });
+    const failApi = createApi({
+      ...base,
+      rewriteNow: async () => ({ ok: false, error: 'rewrite_failed', detail: '模型输出解析失败' }),
+    });
+    activeApi = failApi;
+    renderPage('zh');
+    await settle(10);
+    await clickTab('tabMaintain');
+    await settle(8);
+    mini.click(mini.findByText(view, makeT('zh')('dreamRun'), 'button'));
+    await settle(16);
+
+    const failedBody = text();
+    assert.match(failedBody, /1 步出错/);
+    assert.match(failedBody, /模型输出解析失败/, '真实失败应显示明细');
+  } finally {
+    activeApi = api;
+  }
+});
+
+await test('维护页：Dream 按时序归档旧结论，剩余矛盾可手动处理', async () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'client-time-order-'));
+  const s = createMemoryStore({ dir, mirror: false });
+  const ws = path.join(tmp, 'client-time-order-ws');
+  fs.mkdirSync(ws, { recursive: true });
+  const add = (title, content, source, createdAt, tags) =>
+    s.upsert({ title, content, source, createdAt, tags }, { workspace: ws }).record;
+  const oldSafe = add('部署前必须跑完整测试。', '部署前必须跑完整测试。', 'agent', '2026-01-01T00:00:00.000Z', ['deploy-time-ui']);
+  const newSafe = add('部署前不要跑完整测试。', '部署前不要跑完整测试。', 'manual', '2026-02-01T00:00:00.000Z', ['deploy-time-ui']);
+  const timeApi = createApi({
+    store: s,
+    settings,
+    activeWorkspace: () => ws,
+    listWorkspaces: () => [{ root: ws, key: 'k', count: 0, active: true }],
+  });
+
+  activeApi = timeApi;
+  try {
+    renderPage('zh');
+    await settle(10);
+    await clickTab('tabMaintain');
+    await settle(8);
+    mini.click(mini.findByText(view, makeT('zh')('dreamRun'), 'button'));
+    await settle(16);
+
+    const body = text();
+    assert.match(
+      body,
+      new RegExp(escapeRe(makeT('zh')('dreamContradictionsResolved').replace('{n}', '1'))),
+      'Dream 应报告按时序归档数量',
+    );
+    assert.match(body, new RegExp(escapeRe(oldSafe.title)), '应显示被归档的旧结论');
+    assert.match(body, new RegExp(escapeRe(newSafe.title)), '应显示保留的新结论');
+    assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, true);
+    assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false);
+
+    const oldTwo = add('数据库只读。', '数据库只读。', 'agent', '2026-01-01T00:00:00.000Z', ['db-time-ui']);
+    const newTwo = add('数据库不要只读。', '数据库不要只读。', 'manual', '2026-02-01T00:00:00.000Z', ['db-time-ui']);
+    renderPage('zh');
+    await settle(10);
+    await clickTab('tabMaintain');
+    await settle(10);
+    const timeOrder = mini.findByText(view, makeT('zh')('healthTimeOrder'), 'button');
+    assert.ok(timeOrder, '待确认矛盾应提供按时序归档按钮');
+    mini.click(timeOrder);
+    await settle(16);
+    assert.equal(s.get(oldTwo.id, { workspace: ws }).archived, true);
+    assert.equal(s.get(newTwo.id, { workspace: ws }).archived, false);
+  } finally {
+    activeApi = api;
+  }
+});
+
 await test('维护页：注入审计显示最近进 prompt 的字节与 hash', async () => {
   store.injectionLogAppend(WS, {
     kind: 'briefing',
@@ -1250,26 +1576,55 @@ await test('画像卡：段落带证据标签，没有证据的段标「未溯�
   renderPage('zh');
   await settle(8);
 
-  const glTitle = mini
-    .findAll(
-      view,
-      (node) =>
-        node.type === 'span' &&
-        mini.textOf(node) === `${makeT('zh')('portraitGlobalLabel')} v${version}`,
-    )
-    .find((node) => typeof node.props.onClick === 'function');
-  assert.ok(glTitle, '找不到可点击的全局画像子行标题');
-  mini.click(glTitle);
-  await settle(6);
-
   const body = text();
-  assert.match(body, /#mem_evidence_demo/, '应显示记忆证据标签');
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '应有全局画像块');
+  assert.match(body, /#mem_evidence_demo/, '默认展开的画像应显示记忆证据标签');
   assert.match(body, /2026-10-20 日志/, '应显示日志证据');
   assert.match(
     body,
     new RegExp(escapeRe(makeT('zh')('portraitUntraced'))),
     '没有证据的段应标未溯源',
   );
+});
+
+await test('画像依据下钻：点证据标签显示来源原文', async () => {
+  const source = store.upsert(
+    { title: '依据原文标题', content: '这是被画像引用的原文。', category: 'fact' },
+    { workspace: WS },
+  ).record;
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/save`,
+    body: {
+      workspace: WS,
+      scope: 'global',
+      sections: [{ key: 'background', text: '有依据的背景。' }],
+      evidence: { background: [source.id] },
+    },
+  });
+  renderPage('zh');
+  await settle(10);
+  const chip = mini.findAll(
+    view,
+    (node) =>
+      node.type === 'span' &&
+      typeof node.props?.onClick === 'function' &&
+      mini.textOf(node) === `#${source.id}`,
+  )[0];
+  assert.ok(chip, '找不到可点击的依据标签');
+  mini.click(chip);
+  await settle(10);
+  assert.match(text(), /依据原文标题/, '依据面板应显示来源标题');
+  assert.match(text(), /这是被画像引用的原文。/, '依据面板应显示来源正文');
+  assert.ok(
+    fetchCalls.some((call) => call.pathname === `${API_PREFIX}/record`),
+    '/record 应被调用',
+  );
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/delete`,
+    body: { workspace: WS, id: source.id },
+  });
 });
 
 await test('维护页待审队列：草稿批准后生效、拒绝后消失，徽标随草稿数变化', async () => {
@@ -1364,7 +1719,7 @@ await test('画像卡：只渲染全局画像块（工作区画像不再出现�
     '/portrait 应随页面加载',
   );
 
-  /* 平铺结构：只铺「全局画像」一个子折叠行（正文不铺开），工作区画像块不再出现。 */
+  /* 平铺结构：只铺「全局画像」一个子块，正文默认展开；工作区画像块不再出现。 */
   const opened = text();
   assert.match(opened, new RegExp(escapeRe(makeT('zh')('portraitGlobalLabel'))), '应有全局画像块');
   assert.doesNotMatch(
@@ -1373,9 +1728,9 @@ await test('画像卡：只渲染全局画像块（工作区画像不再出现�
     '工作区画像块不应再出现',
   );
   assert.match(opened, /v\d+/, '应显示版本号');
-  assert.ok(!opened.includes('全局偏好文本。'), '子折叠默认收起，正文不应铺开');
+  assert.ok(opened.includes('全局偏好文本。'), '画像正文应默认展开');
 
-  /* 二层：点开全局子行看正文。 */
+  /* 折叠语言仍可用：点标题收起，再点展开。 */
   const glTitle = mini.findByText(
     view,
     `${makeT('zh')('portraitGlobalLabel')} v${baseGlVersion + 1}`,
@@ -1384,7 +1739,10 @@ await test('画像卡：只渲染全局画像块（工作区画像不再出现�
   assert.ok(glTitle, '找不到全局画像子行标题');
   mini.click(glTitle);
   await settle(6);
-  assert.ok(text().includes('全局偏好文本。'), '展开子行后应显示全局画像正文');
+  assert.ok(!text().includes('全局偏好文本。'), '点标题应收起正文');
+  mini.click(glTitle);
+  await settle(6);
+  assert.ok(text().includes('全局偏好文本。'), '再点标题应重新展开正文');
 
   /* 编辑全局画像（第一个「编辑」按钮 = 画像卡内的全局画像；全局段标题用 globalTitle）。 */
   const edit = mini.findByText(view, makeT('zh')('editDoc'), 'button');
@@ -1412,6 +1770,46 @@ await test('画像卡：只渲染全局画像块（工作区画像不再出现�
     '/portrait/save 应被调用',
   );
   assert.match(text(), /画像已保存/, '保存后应出现提示');
+});
+
+await test('画像逐段编辑：只更新当前段，其他段不动', async () => {
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/portrait/save`,
+    body: {
+      workspace: WS,
+      scope: 'global',
+      sections: [
+        { key: 'background', text: '逐段编辑前。' },
+        { key: 'focus', text: '另一段不动。' },
+      ],
+    },
+  });
+  renderPage('zh');
+  await settle(10);
+
+  const section = mini.findAll(
+    view,
+    (node) => String(node.props?.className || '').includes('dshmem_docPara') && mini.textOf(node).includes('逐段编辑前。'),
+  )[0];
+  assert.ok(section, '找不到待编辑的画像段落');
+  const edit = mini.findByText(section, makeT('zh')('portraitEditSection'), 'button');
+  assert.ok(edit, '段落缺少「编辑本段」入口');
+  mini.click(edit);
+  await settle(6);
+
+  const area = mini
+    .findAllByTag(view, 'textarea')
+    .find((node) => node.props.value === '逐段编辑前。');
+  assert.ok(area, '段落编辑框没有带出原文');
+  mini.type(area, '逐段编辑后。');
+  await settle(4);
+  mini.click(mini.findByText(view, makeT('zh')('save'), 'button'));
+  await settle(14);
+
+  const portrait = store.portrait('');
+  assert.equal(portrait.sections.find((item) => item.key === 'background').text, '逐段编辑后。');
+  assert.equal(portrait.sections.find((item) => item.key === 'focus').text, '另一段不动。');
 });
 
 await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/- 行（全局画像）', async () => {
@@ -1446,6 +1844,134 @@ await test('画像卡：这次变了什么——拉 /portrait/diff 并渲染 +/-
   assert.match(now, new RegExp(`v${baseGlVersion + 1} → v${baseGlVersion + 2}`), '应显示全局画像版本区间');
   assert.match(now, /\+ 改过的背景。/, '应显示新增行');
   assert.match(now, /− 客户端测试背景。/, '应显示删除行');
+});
+
+await test('红线专用编辑器：新增、逐字预览、编辑', async () => {
+  renderPage('zh');
+  await settle(10);
+  mini.click(mini.findByText(view, makeT('zh')('redlineAdd'), 'button'));
+  await settle(6);
+
+  const titleInput = mini
+    .findAllByTag(view, 'input')
+    .find((node) => node.props.placeholder === makeT('zh')('redlineTitlePh'));
+  const contentArea = mini
+    .findAllByTag(view, 'textarea')
+    .find((node) => node.props.placeholder === makeT('zh')('redlineContentPh'));
+  assert.ok(titleInput && contentArea, '红线编辑器没有渲染标题与正文输入');
+  mini.type(titleInput, '红线编辑器测试');
+  mini.type(contentArea, '任何情况下都不得删除生产数据。');
+  await settle(6);
+  assert.match(text(), /任何情况下都不得删除生产数据。/, '注入预览应包含原文');
+
+  const scopeSelect = mini
+    .findAllByTag(view, 'select')
+    .find((node) => mini.textOf(node).includes(makeT('zh')('scopeGlobalFull')));
+  assert.ok(scopeSelect, '缺少生效范围选择');
+  mini.type(scopeSelect, 'global');
+  await settle(4);
+
+  mini.click(mini.findByText(view, makeT('zh')('save'), 'button'));
+  await settle(14);
+
+  const record = store
+    .list({ workspace: WS, includeArchived: true })
+    .records.find((item) => item.title === '红线编辑器测试');
+  assert.ok(record, '新增红线没有落库');
+  assert.equal(record.category, 'constraint');
+  assert.equal(record.scope, 'global');
+  assert.equal(record.source, 'manual');
+  assert.equal(record.content, '任何情况下都不得删除生产数据。');
+
+  mini.click(mini.findByText(view, makeT('zh')('redlineEdit'), 'button'));
+  await settle(6);
+  const editArea = mini
+    .findAllByTag(view, 'textarea')
+    .find((node) => node.props.value === '任何情况下都不得删除生产数据。');
+  assert.ok(editArea, '编辑红线没有带出原文');
+  mini.type(editArea, '任何情况下都不得删除生产环境的数据。');
+  await settle(4);
+  mini.click(mini.findByText(view, makeT('zh')('save'), 'button'));
+  await settle(14);
+  assert.equal(
+    store.get(record.id, { workspace: WS }).content,
+    '任何情况下都不得删除生产环境的数据。',
+    '编辑红线应更新正文',
+  );
+  const afterEdit = store.get(record.id, { workspace: WS });
+  assert.equal(afterEdit.redlineHistory.length, 1, '编辑红线应保留旧版本');
+  assert.equal(afterEdit.redlineHistory[0].content, '任何情况下都不得删除生产数据。');
+
+  const historyButton = mini.findByText(view, makeT('zh')('redlineHistory'), 'button');
+  assert.ok(historyButton, '红线行缺少历史入口');
+  mini.click(historyButton);
+  await settle(8);
+  assert.match(text(), /任何情况下都不得删除生产数据。/, '历史面板应显示旧措辞');
+  const rollbackButton = mini.findByText(view, makeT('zh')('rollback'), 'button');
+  assert.ok(rollbackButton, '历史面板缺少回滚按钮');
+  mini.click(rollbackButton);
+  await settle(14);
+  assert.equal(
+    store.get(record.id, { workspace: WS }).content,
+    '任何情况下都不得删除生产数据。',
+    '回滚应恢复旧措辞',
+  );
+
+  await api.handle({
+    method: 'POST',
+    pathname: `${API_PREFIX}/delete`,
+    body: { workspace: WS, id: record.id, overrideRedline: true },
+  });
+});
+
+await test('红线冲突提示：命中后不静默保存，确认后才落库', async () => {
+  const existing = store.upsert(
+    {
+      title: '项目统一使用 pnpm 安装依赖。',
+      content: '项目统一使用 pnpm 安装依赖。',
+      category: 'constraint',
+      source: 'user',
+    },
+    { workspace: WS },
+  ).record;
+  renderPage('zh');
+  await settle(10);
+  mini.click(mini.findByText(view, makeT('zh')('redlineAdd'), 'button'));
+  await settle(6);
+  const titleInput = mini
+    .findAllByTag(view, 'input')
+    .find((node) => node.props.placeholder === makeT('zh')('redlineTitlePh'));
+  const contentArea = mini
+    .findAllByTag(view, 'textarea')
+    .find((node) => node.props.placeholder === makeT('zh')('redlineContentPh'));
+  mini.type(titleInput, '项目不要统一使用 pnpm 安装依赖。');
+  mini.type(contentArea, '项目不要统一使用 pnpm 安装依赖。');
+  await settle(6);
+
+  const countRedlines = () =>
+    store.list({ workspace: WS, includeArchived: true }).records.filter((r) => r.category === 'constraint' && !r.archived).length;
+  const before = countRedlines();
+  mini.click(mini.findByText(view, makeT('zh')('save'), 'button'));
+  await settle(12);
+  assert.match(text(), new RegExp(escapeRe(makeT('zh')('redlineConflictHit'))), '应提示红线冲突');
+  assert.equal(countRedlines(), before, '未确认冲突时不应落库');
+
+  const saveAnyway = mini.findByText(view, makeT('zh')('redlineSaveAnyway'), 'button');
+  assert.ok(saveAnyway, '冲突提示缺少「仍然保存」');
+  mini.click(saveAnyway);
+  await settle(14);
+  assert.equal(countRedlines(), before + 1, '确认后应落库');
+
+  const fresh = store
+    .list({ workspace: WS, includeArchived: true })
+    .records.find((r) => r.title === '项目不要统一使用 pnpm 安装依赖。');
+  for (const id of [existing.id, fresh.id]) {
+    await api.handle({
+      method: 'POST',
+      pathname: `${API_PREFIX}/delete`,
+      body: { workspace: WS, id, overrideRedline: true },
+    });
+  }
 });
 
 await test('红线卡：置顶渲染，解除走 overrideRedline 确认通道', async () => {

@@ -24,7 +24,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **C5** | 只监听 `session/event` 的 `turn/end`。**不要**挂 `agent/turn-stopping` | 那个事件是串行 await，长活会拖住整个轮次收尾 |
 | **C6** | `status: draft` 四不可见：不进简报、不进检索、不进镜像、不进导出 | 待审队列形同虚设，没被批准的模型产出直接生效 |
 | **C7** | 加端点 / 加配置键 / 改默认值 → 同步三处：`cordis.patch.yml`、README 的「配置」与「HTTP 契约」表、`test/host.test.mjs` 的默认值断言 | README 是发布合同；默认值只改代码不改 patch，用户装上去还是旧值 |
-| **C8** | 红线（`category: constraint`）的治理链不得松动：`store.remove` / `patchRecord` 默认拒绝（`redline_protected`），`overrideRedline` **只能**从面板确认（`POST /delete` 显式传）进来，`memory` 工具的 forget / HTTP 默认路径永不透传；简报里红线先于预算挑选、措辞逐字渲染（不经 LLM 重写软化） | 模型一句话删掉用户的绝对禁令，或禁令被画像重写悄悄改写措辞 |
+| **C8** | 红线（`category: constraint`）的治理链不得松动：`store.remove` / `patchRecord` 默认拒绝（`redline_protected`），`overrideRedline` **只能**从面板确认（`POST /delete` 显式传）进来，`memory` 工具的 forget / HTTP 默认路径永不透传；改稿 / 回滚只走面板确认接口（`/redline/update`、`/redline/rollback`，必须 `confirm: true`），旧措辞进历史；红线不参与整理 / 合并；简报里红线先于预算挑选、措辞逐字渲染（不经 LLM 重写软化） | 模型一句话删掉用户的绝对禁令，或禁令被画像重写悄悄改写措辞 |
 
 ### 1.2 数据与隐私红线
 
@@ -47,7 +47,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
-| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 538 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
+| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 563 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
 | **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**，且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来 |
 
@@ -60,10 +60,11 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 你要改什么 | 主文件 | 一起看 | 必须跑 |
 | --- | --- | --- | --- |
 | 记录模型、去重合并、版本链、镜像、导入导出、体检、画像存取 | `lib/store.js` | `lib/quality.js`、`lib/text.js` | `store` |
+| 红线专用编辑 / 历史 / 冲突检查 | `lib/client.js`（红线编辑器） | `lib/store.js` 的 `updateRedline` / `rollbackRedline` / `redlineConflicts`、`lib/api.js` 的 `/redline/*` | `store` + `api` + `client` |
 | 检索打分（BM25F / 精确短语 / related 一跳 / 同义词扩展） | `lib/retrieval.js` | `test/fixtures/retrieval-hard-60.json`、`docs/retrieval-eval-2026-10-20.md` | `retrieval` |
 | 简报注入、`memory` 工具、轮末召回、路径 JIT、路由挂载、Config schema | `lib/index.js` | `lib/portrait.js`、`lib/api.js` | `activate` + `briefing-stability` + `host` |
 | HTTP 端点、错误码、参数校验 | `lib/api.js` | README「HTTP 契约」表 | `api` |
-| 设置面板 UI（四个 tab、档案视图、维护页、图标标记） | `lib/client.js` | `test/mini-react.mjs`、`locale/*.json` | `client` |
+| 设置面板 UI（三个 tab、首页红线/画像/收件箱、原料抽屉、维护页、图标标记） | `lib/client.js` | `test/mini-react.mjs`、`locale/*.json` | `client` |
 | 提炼提示词、模型输出容错、触发条件 | `lib/distill.js` | `lib/index.js` 里的 capture 流程 | `distill` |
 | 画像段落、渲染 / 解析、预算截断、版本 diff | `lib/portrait.js` | `lib/store.js` 的 portrait 段 | `portrait` |
 | 派生链（记忆 → 画像 → AGENTS.md 的源快照与标脏） | `lib/derivation.js` | `lib/store.js` 的 `promoteToAgents` | `derivation` |
@@ -87,6 +88,12 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 该进简报的记忆没进 | `GET /briefing-preview` 看它是不是被预算挤掉（`briefingLimit` / `briefingMaxChars`） |
 | 自动提炼写了不该写的东西 | 先看 `captureMode` 是不是 `direct`；`draft` 会进待审队列 |
 | 库被误删 / 面板点了清空 | 看 `<库根>/backups/`：每天第一次写入 + 每次 Dream 前各留一份，轮转 7 份；拷回目录即恢复（面板不做自动覆盖） |
+| 红线改稿后旧措辞丢失 / 历史回滚无效 | `/redline/update`、`/redline/rollback` 是否带 `confirm: true`；`normalizeRedlineHistory()` 与 `normalizeLoaded()` 是否保留 `redlineHistory`；历史上限 20 版 |
+| Dream / 整理合并了红线、置顶丢失、正反结论被揉成一条 | `clusterDuplicates()` 排除红线与矛盾对；`consolidateCluster()` 返回 `redline_protected` / `contradiction_pair` 并继承 `pinned`；面板整理走 `/health/resolve merge`，不走 `/save` + `/bulk` |
+| Dream 报「N 步出错」但只显示画像未触发 | 画像重写失败码是否被分类为跳过（`no_model_route` / `llm_unavailable` / `no_material` / `disabled` / `already_running` / `no_workspace`）；真实失败应在客户端显示步骤与明细 |
+| Dream 后旧结论仍在 / 待确认矛盾反复出现 | `resolveContradictionsByTime()` 按 `createdAt` 判断新旧；保护边界是红线 / 置顶 / `user_older` / `external_newer` / `mixed_scope`；面板「按时序归档旧条」走 `/health/resolve time-order` |
+| 红线冲突提示误报 / 漏报 | `redlineConflicts()` 复用 `detectContradictions()` 的疑似矛盾词法规则，是启发式；调阈值/否定词时同步 `store` 与 `api` 的红线测试 |
+| 首页「需要处理」数字与收件箱不一致 | `healthData` / `queueData` / `reviewData` 的拉取条件；收件箱只在 `attentionOpen` 时拉 queue / reviews |
 | 改完代码界面没变 | 宿主半（`lib/index.js` 等）改动要**重启 DSH**；纯客户端改动 `Ctrl+Shift+R` 硬刷新即可 |
 
 ### 2.3 文档路由
@@ -106,7 +113,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 ## 3. 命令速查
 
 ```powershell
-node test/run-all.mjs                  # 14 套件 / 538 断言，改完必跑（P6）
+node test/run-all.mjs                  # 14 套件 / 563 断言，改完必跑（P6）
 node test/store.test.mjs               # 单套件：把 store 换成 retrieval / api / client …
 
 pwsh -File install.ps1 -DryRun         # 只看要改什么，不落盘

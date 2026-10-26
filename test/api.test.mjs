@@ -808,6 +808,218 @@ await test('POST /dream：合并重复簇、报告过期，画像未触发时不
   );
 });
 
+await test('POST /dream：红线不参与自动合并', async () => {
+  const a = store.upsert(
+    { title: '绝不覆盖生产库', content: '任何情况下都不得覆盖生产数据库。', category: 'constraint', source: 'user' },
+    { workspace: WS },
+  ).record;
+  const b = store.upsert(
+    { title: '禁止覆盖生产库', content: '任何情况下都不得覆盖生产数据库。', category: 'constraint', source: 'user' },
+    { workspace: WS },
+  ).record;
+
+  const res = await call('POST', '/dream', { body: { workspace: WS } });
+  assert.equal(res.status, 200);
+  assert.ok(
+    res.body.merged.every((item) => !item.archivedIds.includes(a.id) && !item.archivedIds.includes(b.id)),
+    'Dream 不应把红线放进合并簇',
+  );
+  assert.equal(store.get(a.id, { workspace: WS }).archived, false, '红线甲应保持生效');
+  assert.equal(store.get(b.id, { workspace: WS }).archived, false, '红线乙应保持生效');
+});
+
+await test('POST /dream：画像重写无模型 / 无原料时跳过，真实失败带明细', async () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'dream-skip-'));
+  const s = createMemoryStore({ dir, mirror: false });
+  const ws = path.join(tmp, 'dream-skip-ws');
+  fs.mkdirSync(ws, { recursive: true });
+  const base = {
+    store: s,
+    settings,
+    activeWorkspace: () => ws,
+    listWorkspaces: () => [{ root: ws, key: 'k', count: 0, active: true }],
+  };
+  s.upsert({ title: '跳过重复甲', content: '跳过测试的重复内容' }, { workspace: ws });
+  s.upsert({ title: '跳过重复乙', content: '跳过测试的重复内容' }, { workspace: ws });
+
+  const skipApi = createApi({
+    ...base,
+    rewriteNow: async () => ({ ok: false, error: 'no_model_route', detail: '当前没有可用的模型路由' }),
+  });
+  let res = await skipApi.handle({
+    method: 'POST',
+    pathname: '/memory/api/dream',
+    query: {},
+    body: { workspace: ws },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.merged.length, 1, '画像跳过不应影响合并');
+  assert.equal(res.body.portrait, 'skipped');
+  assert.equal(res.body.portraitReason, 'no_model_route');
+  assert.equal(res.body.errors.length, 0, '无模型会话不应算失败');
+
+  const noMaterialApi = createApi({
+    ...base,
+    rewriteNow: async () => ({ ok: false, error: 'no_material', detail: '没有可重写的原料' }),
+  });
+  res = await noMaterialApi.handle({
+    method: 'POST',
+    pathname: '/memory/api/dream',
+    query: {},
+    body: { workspace: ws },
+  });
+  assert.equal(res.body.portrait, 'skipped');
+  assert.equal(res.body.portraitReason, 'no_material');
+  assert.equal(res.body.errors.length, 0, '无原料不应算失败');
+
+  const failApi = createApi({
+    ...base,
+    rewriteNow: async () => ({ ok: false, error: 'rewrite_failed', detail: '模型输出解析失败' }),
+  });
+  res = await failApi.handle({
+    method: 'POST',
+    pathname: '/memory/api/dream',
+    query: {},
+    body: { workspace: ws },
+  });
+  assert.equal(res.body.portrait, null);
+  assert.equal(res.body.errors.length, 1);
+  assert.equal(res.body.errors[0].step, 'portrait');
+  assert.equal(res.body.errors[0].detail, '模型输出解析失败');
+});
+
+await test('Dream 时序矛盾：自动归档旧结论，保护项留给 /health/resolve', async () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'dream-time-order-'));
+  const s = createMemoryStore({ dir, mirror: false });
+  const ws = path.join(tmp, 'dream-time-order-ws');
+  fs.mkdirSync(ws, { recursive: true });
+  const api = createApi({
+    store: s,
+    settings,
+    activeWorkspace: () => ws,
+    listWorkspaces: () => [{ root: ws, key: 'k', count: 0, active: true }],
+  });
+  const add = (title, content, source, createdAt, tags) =>
+    s.upsert({ title, content, source, createdAt, tags }, { workspace: ws }).record;
+
+  const oldSafe = add('部署前必须跑完整测试。', '部署前必须跑完整测试。', 'agent', '2026-01-01T00:00:00.000Z', ['deploy-time']);
+  const newSafe = add('部署前不要跑完整测试。', '部署前不要跑完整测试。', 'manual', '2026-02-01T00:00:00.000Z', ['deploy-time']);
+  let res = await api.handle({
+    method: 'POST',
+    pathname: '/memory/api/dream',
+    query: {},
+    body: { workspace: ws },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.contradictionsResolved.length, 1, 'Dream 应按时序归档旧结论');
+  assert.equal(res.body.contradictionsResolved[0].archivedId, oldSafe.id);
+  assert.equal(res.body.contradictionsResolved[0].keptId, newSafe.id);
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, true);
+  assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false);
+
+  const oldManual = add('缓存必须每天清理。', '缓存必须每天清理。', 'manual', '2026-01-01T00:00:00.000Z', ['cache-time']);
+  add('缓存不要每天清理。', '缓存不要每天清理。', 'agent', '2026-02-01T00:00:00.000Z', ['cache-time']);
+  const manualPair = s
+    .health({ workspace: ws })
+    .contradictions.find((pair) => pair.a === oldManual.id || pair.b === oldManual.id);
+  assert.ok(manualPair, '应检出用户旧条与模型新条');
+  res = await api.handle({
+    method: 'POST',
+    pathname: '/memory/api/health/resolve',
+    query: {},
+    body: { workspace: ws, action: 'time-order', ids: [manualPair.a, manualPair.b] },
+  });
+  assert.equal(res.status, 400, '用户旧条不应被模型新条自动覆盖');
+  assert.equal(res.body.error, 'user_older');
+  assert.equal(s.get(oldManual.id, { workspace: ws }).archived, false);
+
+  const oldTwo = add('数据库只读。', '数据库只读。', 'agent', '2026-01-01T00:00:00.000Z', ['db-time']);
+  const newTwo = add('数据库不要只读。', '数据库不要只读。', 'manual', '2026-02-01T00:00:00.000Z', ['db-time']);
+  res = await api.handle({
+    method: 'POST',
+    pathname: '/memory/api/health/resolve',
+    query: {},
+    body: { workspace: ws, action: 'time-order', ids: [oldTwo.id, newTwo.id] },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(s.get(oldTwo.id, { workspace: ws }).archived, true);
+  assert.equal(s.get(newTwo.id, { workspace: ws }).archived, false);
+});
+
+await test('红线审计接口：check / update(confirm) / history / rollback', async () => {
+  const red = store.upsert(
+    { title: '绝不覆盖生产库', content: '任何情况下都不得覆盖生产数据库。', category: 'constraint', source: 'user' },
+    { workspace: WS },
+  ).record;
+  const other = store.upsert(
+    { title: '项目统一使用 pnpm 安装依赖。', content: '项目统一使用 pnpm 安装依赖。', category: 'constraint', source: 'user' },
+    { workspace: WS },
+  ).record;
+
+  const conflict = await call('POST', '/redline/check', {
+    body: {
+      workspace: WS,
+      title: '项目不要统一使用 pnpm 安装依赖。',
+      content: '项目不要统一使用 pnpm 安装依赖。',
+    },
+  });
+  assert.equal(conflict.status, 200);
+  assert.equal(conflict.body.conflicts.length, 1, '应检出与现有红线的矛盾');
+  assert.equal(conflict.body.conflicts[0].id, other.id);
+
+  const noConfirm = await call('POST', '/redline/update', {
+    body: { workspace: WS, id: red.id, title: red.title, content: '改过的红线正文。' },
+  });
+  assert.equal(noConfirm.status, 400);
+  assert.equal(noConfirm.body.error, 'confirmation_required');
+
+  const updated = await call('POST', '/redline/update', {
+    body: { workspace: WS, id: red.id, title: red.title, content: '改过的红线正文。', confirm: true },
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.record.redlineHistory.length, 1, '旧措辞应入历史');
+
+  const history = await call('GET', '/redline/history', { query: { workspace: WS, id: red.id } });
+  assert.equal(history.status, 200);
+  assert.equal(history.body.current.content, '改过的红线正文。');
+  assert.equal(history.body.versions.length, 1);
+
+  const rollback = await call('POST', '/redline/rollback', {
+    body: { workspace: WS, id: red.id, index: 0, confirm: true },
+  });
+  assert.equal(rollback.status, 200);
+  assert.equal(rollback.body.record.content, '任何情况下都不得覆盖生产数据库。');
+
+  for (const id of [red.id, other.id]) {
+    await call('POST', '/delete', { body: { workspace: WS, id, overrideRedline: true } });
+  }
+});
+
+await test('GET /record：按 id 读单条（含归档、不含草稿）', async () => {
+  const rec = store.upsert(
+    { title: '依据原文', content: '这是被画像引用的依据正文。' },
+    { workspace: WS },
+  ).record;
+  const found = await call('GET', '/record', { query: { workspace: WS, id: rec.id } });
+  assert.equal(found.status, 200);
+  assert.equal(found.body.record.title, '依据原文');
+
+  const draft = store.upsert(
+    { title: '依据草稿', content: '草稿不应通过 record 暴露。', status: 'draft', source: 'auto' },
+    { workspace: WS },
+  ).record;
+  const hidden = await call('GET', '/record', { query: { workspace: WS, id: draft.id } });
+  assert.equal(hidden.status, 404, '草稿不应通过 /record 暴露');
+
+  store.update(rec.id, { archived: true }, { workspace: WS });
+  const archived = await call('GET', '/record', { query: { workspace: WS, id: rec.id } });
+  assert.equal(archived.status, 200);
+  assert.equal(archived.body.record.archived, true, '归档记录仍应可读');
+
+  await call('POST', '/delete', { body: { workspace: WS, id: rec.id } });
+  await call('POST', '/queue/reject', { body: { workspace: WS, id: draft.id } });
+});
+
 /* ---------------- 会话检索与程序记忆晋升 ---------------- */
 
 await test('GET /sessions：按词重叠搜回当轮原话', async () => {
