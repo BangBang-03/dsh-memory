@@ -2156,6 +2156,25 @@ test('维护台账：损坏 JSON 不抛，返回空台账', () => {
   assert.deepEqual(state.runs, []);
 });
 
+test('sessionLogAppend：会话索引写入前脱敏，npm token 不落盘', () => {
+  const s = iso('session-log-redact');
+  const ws = makeWorkspace('v03-session-log-redact');
+  const token = `npm_${'A'.repeat(36)}`;
+  const res = s.sessionLogAppend(ws, {
+    sessionId: 's1',
+    turn: 1,
+    text: `我的发布 token 是 ${token}，别泄露。`,
+  });
+  assert.equal(res.ok, true);
+  const info = s.workspaceInfo(ws);
+  const file = path.join(path.dirname(info.dataFile), 'sessions.jsonl');
+  const raw = fs.readFileSync(file, 'utf8');
+  assert.doesNotMatch(raw, /A{30}/, 'token 原文不应落盘');
+  assert.match(raw, /REDACTED:npm_token/, '应留脱敏标记');
+  const found = s.sessionSearch({ workspace: ws, query: '发布 token' });
+  assert.equal(found.some((entry) => String(entry.text).includes(token)), false, '检索也不应返回原文');
+});
+
 /* ---------------- 结果 ---------------- */
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
