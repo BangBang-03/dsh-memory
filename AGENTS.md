@@ -50,7 +50,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
-| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 579 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
+| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 580 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
 | **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**（发版属于默认「落后一版」策略的明确例外），且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来。完整步骤与验收见 `skills/release/SKILL.md` |
 
@@ -69,7 +69,8 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | HTTP 端点、错误码、参数校验 | `lib/api.js` | README「HTTP 契约」表 | `api` |
 | 设置面板 UI（三个 tab、首页红线/画像/收件箱、原料抽屉、维护页、图标标记） | `lib/client.js` | `test/mini-react.mjs`、`locale/*.json` | `client` |
 | 提炼提示词、模型输出容错、触发条件 | `lib/distill.js` | `lib/index.js` 里的 capture 流程 | `distill` |
-| Dream 整理管线（合并重复簇 / 矛盾报告（不自动归档）/ 启动整理触发与台账） | `lib/dream.js` | `lib/index.js` 的 `runStartupDream`、`lib/store.js` 的 `maintenanceState` / `noteMaintenance`、`lib/api.js` 的 `/dream` 与 `/health` | `api` + `activate` + `store` |
+| Dream 整理管线（合并重复簇 / 矛盾报告（不自动归档）/ 启动 + 轮末到期检查与台账） | `lib/dream.js` | `lib/index.js` 的 `runAutoDream`、`lib/store.js` 的 `maintenanceState` / `noteMaintenance`、`lib/api.js` 的 `/dream` 与 `/health` | `api` + `activate` + `store` |
+| 自动刷新全局画像（WorkBuddy 式主路径：turn/end + 会话销毁触发、吸收当前工作区近况） | `lib/index.js` 的 `scheduleAutoPortrait` / `runPortraitRewrite` | `lib/portrait.js`、`lib/client.js` 画像卡自动状态、`lib/api.js` 的 `/portrait` 与 `/health` | `activate` + `portrait` + `api` |
 | 画像段落、渲染 / 解析、预算截断、版本 diff | `lib/portrait.js` | `lib/store.js` 的 portrait 段 | `portrait` |
 | 画像重写提示词、模型输出容错解析、失败重试与有损改送待审 | `lib/portrait.js`（`REWRITE_SYSTEM` / `REWRITE_STRICT_SYSTEM` / `parseRewriteResponse`） | `lib/index.js` 的 `runPortraitRewrite`（重试、脱敏日志、degraded 判定） | `portrait` + `activate` |
 | 派生链（记忆 → 画像 → AGENTS.md 的源快照与标脏） | `lib/derivation.js` | `lib/store.js` 的 `promoteToAgents` | `derivation` |
@@ -92,7 +93,8 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | `dsh plugin --profile desktop add …` 被拒 | 正常：desktop profile 由桌面端独占，走 `install.ps1` |
 | 该进简报的记忆没进 | `GET /briefing-preview` 看它是不是被预算挤掉（`briefingLimit` / `briefingMaxChars`） |
 | 自动提炼写了不该写的东西 | 先看 `captureMode` 是不是 `direct`；`draft` 会进待审队列 |
-| 打开 DSH 后没有自动整理 | `autoDreamDays` 是否为 0；工作区是否在 `disabledWorkspaces`；`<库根>/workspaces/<folder>/maintenance.json` 的 `lastAutoAt` 是否已到期；启动时没有模型路由时本地整理照跑、画像留到第一个轮末补 |
+| 打开 DSH 后没有自动整理 / 轮末也不整理 | `autoDreamDays` 是否为 0；工作区是否在 `disabledWorkspaces`；`<库根>/workspaces/<folder>/maintenance.json` 的 `lastAutoAt` 是否已到期；空库（<2 条）不会跑；`rewriteState.running` / 正在提炼时会等下一轮 |
+| 画像不自动更新 / 一直是旧版 | `autoPortraitHours` 是否为 0；全局画像 `updatedAt` 是否已满间隔；当前工作区是否有比画像更新的素材（排除红线 / taint / 草稿）；`rewriteState.running`；`rewriteMode=draft` 时是进待审而非直接更新 |
 | 库被误删 / 面板点了清空 | 看 `<库根>/backups/`：每天第一次写入 + 每次 Dream 前各留一份，轮转 7 份；拷回目录即恢复（面板不做自动覆盖） |
 | 红线改稿后旧措辞丢失 / 历史回滚无效 | `/redline/update`、`/redline/rollback` 是否带 `confirm: true`；`normalizeRedlineHistory()` 与 `normalizeLoaded()` 是否保留 `redlineHistory`；历史上限 20 版 |
 | Dream / 整理合并了红线、置顶丢失、正反结论被揉成一条 | `clusterDuplicates()` 排除红线与矛盾对；`consolidateCluster()` 返回 `redline_protected` / `contradiction_pair` 并继承 `pinned`；面板整理走 `/health/resolve merge`，不走 `/save` + `/bulk` |
@@ -132,7 +134,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 ## 3. 命令速查
 
 ```powershell
-node test/run-all.mjs                  # 14 套件 / 579 断言，改完必跑（P6）
+node test/run-all.mjs                  # 14 套件 / 580 断言，改完必跑（P6）
 node test/store.test.mjs               # 单套件：把 store 换成 retrieval / api / client …
 
 pwsh -File install.ps1 -DryRun         # 只看要改什么，不落盘

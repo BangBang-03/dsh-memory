@@ -7,7 +7,7 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `index.js` | 宿主半入口：`apply()` 注册简报注入段（`sectionOrder: 550`）、`memory` 工具、`/memory/api` 路由、`turn/end` 轮末召回与自动提炼、路径 JIT |
+| `index.js` | 宿主半入口：`apply()` 注册简报注入段（`sectionOrder: 550`）、`memory` 工具、`/memory/api` 路由、`turn/end` 轮末召回与自动提炼、路径 JIT、启动整理、自动刷新全局画像（WorkBuddy 式） |
 | `client.js` | 客户端半：设置面板「记忆」页（记忆库 / 维护 / 设置 三个 tab）；首页红线 + 画像 + 需要处理 + 原料抽屉，红线专用编辑器 / 画像逐段编辑与依据下钻 / 收件箱 |
 | `store.js` | 存储核心：记录模型、去重合并、版本链（`supersedes`）、红线改稿历史与冲突检查、按时序归档矛盾旧结论、工作区镜像、导入导出、体检、画像与日志存取 |
 | `retrieval.js` | 检索打分：BM25F、精确短语、`related` 一跳、同义词扩展 |
@@ -25,5 +25,5 @@
 
 - 改宿主半（`index.js`、`store.js` 等）后要**重启 DSH** 才生效；只改 `client.js` 用 `Ctrl+Shift+R` 硬刷新即可。
 - 哪个模块对应哪个测试套件，见根 [AGENTS.md](../AGENTS.md) 的路由表；改完统一跑 `node test/run-all.mjs`
-  （当前 14 套件 / 579 断言）。
+  （当前 14 套件 / 580 断言）。
 - 配置键、默认值、HTTP 契约的权威说明在根 [README.md](../README.md)，不在本目录。

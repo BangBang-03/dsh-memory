@@ -221,9 +221,9 @@ fs.mkdirSync(workspace, { recursive: true });
 function activate({ services = {}, ...config } = {}) {
   const dir = fs.mkdtempSync(path.join(tmp, 'data-'));
   const { ctx, calls } = createFakeCtx(services);
-  // 启动整理默认关：这些用例测的是其它路径，不让后台整理在断言之间插进来。
-  // 专项用例会显式传 autoDreamDays 打开。
-  mod.apply(ctx, { directory: dir, autoDreamDays: 0, ...config });
+  // 启动整理 / 自动刷新画像默认关：这些用例测的是其它路径，不让后台整理在断言之间插进来。
+  // 专项用例会显式传 autoDreamDays / autoPortraitHours 打开。
+  mod.apply(ctx, { directory: dir, autoDreamDays: 0, autoPortraitHours: 0, ...config });
   const tool = calls.tools[0];
   const route = calls.routes[0]?.handler;
   const messages = [
@@ -1649,50 +1649,98 @@ await test('画像重写（全局）：原料里要带得上全局条目，不�
   assert.match(prompt, /全局画像的重写原料/, '提示词应包含全局条目');
 });
 
-await test('画像重写 draft：进待审 → 批准后生效 → 重复批准 404', async () => {
+await test('画像重写 draft：全局稿进待审 → 批准后生效 → 重复批准 404', async () => {
   const { calls, route, session } = activate({ services: { llm: fakeLlm(REWRITE_REPLY) } });
   calls.events.find(([name]) => name === 'session/created')[1](session);
   await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/save',
-    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '旧背景。' }] }),
+    body: JSON.stringify({ workspace, scope: 'global', sections: [{ key: 'background', text: '旧背景。' }] }),
   });
 
   const res = await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/rewrite',
-    body: JSON.stringify({ workspace, mode: 'draft' }),
+    body: JSON.stringify({ workspace, scope: 'global', mode: 'draft' }),
   });
   assert.equal(res.body.drafted, true);
   assert.equal(res.body.sections.find((s) => s.key === 'background').text, '重写后的背景。');
 
   const state = await callRoute(route, { url: '/memory/api/portrait' });
-  assert.equal(state.body.draft, true);
-  assert.equal(state.body.workspace.version, 1, '批准前画像不变');
+  assert.equal(state.body.draft, true, '面板只展示全局画像，待审稿也应是全局的');
+  assert.equal(state.body.global.version, 1, '批准前全局画像不变');
 
-  const draft = await callRoute(route, { url: '/memory/api/portrait/draft' });
+  const draft = await callRoute(route, { url: '/memory/api/portrait/draft?scope=global' });
   assert.equal(draft.body.draft.sections.find((s) => s.key === 'background').text, '重写后的背景。');
-  assert.deepEqual(draft.body.draft.evidence.background, ['journal:2026-10-20'], '草稿应带证据');
+  assert.deepEqual(
+    draft.body.draft.evidence?.background || [],
+    [],
+    '全局稿只保留全局作用域能对账的证据（虚构 journal 应被过滤）',
+  );
 
   const approve = await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/draft/approve',
-    body: JSON.stringify({ workspace }),
+    body: JSON.stringify({ workspace, scope: 'global' }),
   });
   assert.equal(approve.status, 200);
   assert.equal(approve.body.portrait.version, 2);
 
   const after = await callRoute(route, { url: '/memory/api/portrait' });
   assert.equal(after.body.draft, false);
-  assert.equal(after.body.workspace.sections.find((s) => s.key === 'background').text, '重写后的背景。');
-  assert.deepEqual(after.body.workspace.evidence.background, ['journal:2026-10-20'], '批准后证据生效');
+  assert.equal(after.body.global.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+  assert.deepEqual(after.body.global.evidence?.background || [], [], '全局稿证据只保留可对账的来源');
 
   const again = await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/draft/approve',
-    body: JSON.stringify({ workspace }),
+    body: JSON.stringify({ workspace, scope: 'global' }),
   });
   assert.equal(again.status, 404, '没有待审稿时应 404');
+});
+
+await test('自动刷新画像：轮末把当前工作区近况写进全局画像，并在间隔内不重复调用', async () => {
+  const seen = [];
+  const { calls, route, session, tool, exec } = activate({
+    autoPortraitHours: 6,
+    services: { llm: fakeLlm(REWRITE_REPLY, seen) },
+  });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await tool.execute(
+    {
+      action: 'save',
+      title: '自动刷新原料条目',
+      content: '这条工作区近况应该被自动画像重写读进全局画像。',
+      category: 'preference',
+    },
+    exec,
+  );
+
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  onEvent(session, { type: 'turn/end', turn: 1 });
+
+  const deadline = Date.now() + 8000;
+  let st = null;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    st = await callRoute(route, { url: '/memory/api/portrait' });
+    if (st.body?.global?.version >= 1) break;
+  }
+  assert.equal(seen.length, 1, '应自动调用一次模型');
+  assert.equal(st.body.global.version, 1, '全局画像应自动写入 v1');
+  assert.equal(
+    st.body.global.sections.find((s) => s.key === 'background')?.text,
+    '重写后的背景。',
+  );
+  const prompt = seen[0]?.messages?.[0]?.content?.[0]?.text || '';
+  assert.match(prompt, /Scope: global/, '自动刷新应写全局画像');
+  assert.match(prompt, /自动刷新原料条目/, '应吸收当前工作区近况');
+  assert.equal(st.body.workspace, null, '不应顺带写工作区画像');
+
+  /* 6 小时节流：紧接着再结束一轮，不应再调用模型。 */
+  onEvent(session, { type: 'turn/end', turn: 2 });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(seen.length, 1, '间隔内不应重复调用模型');
 });
 
 await test('画像重写：第一次没按 JSON 输出时用严格提示重试一次，然后照常落库', async () => {
@@ -1757,13 +1805,13 @@ await test('画像重写：输出被截断时不直写，改送待审等人确�
   await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/save',
-    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '旧背景。' }] }),
+    body: JSON.stringify({ workspace, scope: 'global', sections: [{ key: 'background', text: '旧背景。' }] }),
   });
 
   const res = await callRoute(route, {
     method: 'POST',
     url: '/memory/api/portrait/rewrite',
-    body: JSON.stringify({ workspace, scope: 'workspace' }),
+    body: JSON.stringify({ workspace, scope: 'global' }),
   });
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.equal(res.body.degraded, 'truncated');
@@ -1772,7 +1820,7 @@ await test('画像重写：输出被截断时不直写，改送待审等人确�
 
   const state = await callRoute(route, { url: '/memory/api/portrait' });
   assert.equal(state.body.draft, true, '待审稿应在');
-  assert.equal(state.body.workspace.version, 1, '批准前画像不变');
+  assert.equal(state.body.global.version, 1, '批准前画像不变');
 });
 
 await test('journal API：写与读、空文本 400、指定日期校验', async () => {

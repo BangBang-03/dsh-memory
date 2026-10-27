@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-579%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-580%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -41,11 +41,11 @@ pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory/releas
 
 公共 npm 源随 `v*` 标签自动发布（仓库需一次性配置 `NPM_TOKEN`，见 `.github/workflows/publish-npmjs.yml`）；配好之后也可以直接 `dsh plugin --profile web add @bangbang-03/dsh-memory`。
 
-- 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼、打开 DSH 后的启动整理。
+- 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼、打开 DSH 后的启动整理、自动刷新全局画像（WorkBuddy 式主路径）。
 - 客户端半 `lib/client.js`：设置面板里的「记忆」页，三个 tab——**记忆库**（首页只留常驻红线、默认展开的记忆画像与「需要处理」；原料、搜索、整理、导入、迁移、日志收进默认收起的「原料与依据」抽屉；库为空时换成「怎么开始」的引导卡）、**维护**（按系统状态 / 需要我处理 / 自动提炼 / 历史记录排，后者默认收起）、设置（注入 / 记录 / 治理 / 高级与数据四组，保存条吸底）。
 - 纯逻辑层：`lib/store.js`（存储）、`lib/dream.js`（整理管线）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
 
-## 新增：对齐市场同类后补的十五处
+## 新增：对齐市场同类后补的十六处
 
 | 机制 | 怎么用 | 默认 |
 | --- | --- | --- |
@@ -62,7 +62,8 @@ pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory/releas
 | 跨层派生链 | 记忆 → 画像 → AGENTS.md 每一层都记下它是从哪些源、哪个版本抄来的（`derivations.json`）；源被删 / 被归档 / 被取代 / 被改写时，**这层派生自动标脏**并沿链向上传递；`GET /derivations` 可查，维护页有「派生链」卡 | 自动 |
 | 失效条件与复审 | 记忆可写 `falsifier`（什么情况出现就说明它不再成立，正文里的「失效条件：…」也会被识别）；带失效条件的记忆自动排期复审，到期进复审队列；`GET /reviews` 与 `action=review` 处理 | `falsifierReviewDays: 90` |
 | 整库快照（后悔药） | 每天第一次写入、以及每次 Dream 动手前，把整个库复制到 `<库根>/backups/<时间戳>-<原因>/`，轮转只留 7 份；`GET /backups` / `POST /backup` 或维护页「立即备份」。恢复 = 手工把某一份拷回库目录（面板**不会**自动覆盖当前数据）；只写库根，绝不碰工作区 | 自动 |
-| 启动自动整理 | 每次打开 DSH 后检查一次：当前（最近使用的）工作区距上次（自动或手动）整理满 `autoDreamDays` 天，就在后台跑一次 Dream 的安全子集（合并重复簇、按词法线索报告矛盾、报告过期；画像可选）。**不会自动归档矛盾**（词法会误报），也**没有常驻定时器、不占对话轮次**；维护页显示上次结果与到期日 | `autoDreamDays: 7` |
+| 启动自动整理 | 启动时与每次轮末检查一次：当前（最近使用的）工作区距上次（自动或手动）整理满 `autoDreamDays` 天，就在后台跑一次 Dream 的安全子集（合并重复簇、按词法线索报告矛盾、报告过期）。**不会自动归档矛盾**（词法会误报），也**没有常驻定时器、不占对话轮次**；维护页显示上次结果与到期日 | `autoDreamDays: 7` |
+| 自动刷新画像（主路径） | 每 `autoPortraitHours`（默认 6）小时检查一次；有比画像更新的工作区素材时，用当前会话模型把**全局画像**重写一版（工作区近况只作上下文，不把工作区规则写进用户画像）。版本 +1、旧版留档、面板显示「上次更新」；`rewriteMode: draft` 时进待审。**画像自动更新是主路径，「立即刷新」只是兜底** | `autoPortraitHours: 6` |
 | 空库引导 | 记忆库为空时，首屏给的是「怎么开始」而不是「这里空」：三条路径（对话里说「记住……」/ 一键开启自动提炼 / 扫别处的记忆）+ 三个按钮，其中「开启自动提炼」直接把 `autoCapture` 打开 | 自动 |
 
 ## v0.3.0「百家记忆」：借鉴了谁
@@ -187,8 +188,10 @@ JWT / 私钥 / `Bearer` / `password: …` 赋值 / 带凭据的数据库 URI）�
    按 `minConfidence` 过滤。`captureMode: direct`（默认）直接落库；`captureMode: draft` 先落草稿进
    **审批队列**，面板批准（可顺手改）后才生效——草稿若挂着 `supersedes`，批准即兑现版本链。
    刻意**不**监听 `agent/turn-stopping` —— 那个事件是串行 await 的，长活在它里面会拖住轮次收尾。
-   打开 DSH 后还会按 `autoDreamDays`（默认 7 天，0 = 关）检查一次到期，满了就在后台跑一次 Dream
-   的安全子集（合并重复簇、按词法线索报告矛盾、报告过期；画像可选）——没有常驻定时器，也不占对话轮次。
+   打开 DSH 后与每轮结束时都会按 `autoDreamDays`（默认 7 天，0 = 关）检查一次到期，满了就在后台跑一次 Dream
+   的安全子集（合并重复簇、按词法线索报告矛盾、报告过期）——没有常驻定时器，也不占对话轮次。
+   画像则按 `autoPortraitHours`（默认 6 小时）在轮末 / 会话销毁时自动刷新全局画像（WorkBuddy 式主路径），
+   面板「立即刷新」只是兜底。
 5. **路径 JIT**（`pathRecall`，默认开）。给记忆挂 `files`（`memory save` 新增 `files` 参数），
    工具触达这些文件时（`tools/pre-execute` 只观察不裁决），相关记忆在**下一个 pre-step 以尾部消息注入**——
    「刚触达：`lib/store.js`。以下是挂在这些文件上的记忆……」。匹配强度：全路径 > 目录后缀 > 同名文件；
@@ -288,7 +291,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 579 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 580 条断言
 git add <改动的文件>; git commit -m "feat: …"   # 不要用 git add -A（.probe/ 是本地材料）
 
 $out = node tools/push.mjs --branch lab; $out   # 输出 base = 上一版在本地的对应提交
@@ -400,10 +403,11 @@ CI（`.github/workflows/publish.yml`）在 `lab` 分支推送时发 `-lab.<run_n
   实时显示简报里实际渲染的那一行（标题最多 200 字、正文最多 500 字），新增时可选举工作区 / 全局，
   多条按加入时间排序。改稿时同时显示「当前生效」与「保存后」两行对照；与现有红线疑似矛盾时先提示，
   二次确认才落库；每次改稿旧措辞进入历史，可查看历史并回滚。
-- **记忆画像**：默认展开；「编辑画像」整篇改，「重写画像」让 AI 重写，「这次变了什么」看版本对比。
+- **记忆画像**：默认展开；画像由 `autoPortraitHours` 自动刷新（WorkBuddy 式主路径），
+  「编辑画像」整篇改，「立即刷新」是兜底，「这次变了什么」看版本对比。
   每段右侧还有「编辑本段」：只改当前段，其他段的证据保留；改过的段会变成「未溯源」。
   段落下方的证据标签可点：记忆显示来源标题、正文与归档状态，工作日志显示当天原文。
-  工作区画像不再单独展示，只保留全局画像。
+  工作区画像不再单独展示，只保留全局画像（自动刷新也只写全局）。
   重写结果解析有容错：模型把换行直接敲进 JSON 字符串、末尾留逗号、输出被截断、字符串引号没转义，
   这几种都能捞回来（`no_json` 不再是「重写必挂」的默认结局）；第一次没按 JSON 输出会用更严格的提示再试一次。
   截断与整体坏掉属于**有损**抢救，结果一律改送待审、面板上标明有损，不静默覆盖你手写的画像。
@@ -471,8 +475,9 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `turnRecallLimit` | `3` | 每轮召回条数（1–10） |
 | `sectionOrder` | `550` | 注入段落在系统提示里的位置 |
 | `autoCapture` | `false` | 轮次结束自动提炼 |
-| `autoDreamDays` | `7` | 启动整理：每次打开 DSH 时检查当前（最近使用的）工作区，距上次（自动或手动）整理满 N 天就在后台整理一次；`0` 关闭（0–365）。没有常驻定时器 |
-| `autoDreamPortrait` | `true` | 启动整理是否顺带重写画像（一次模型调用；落库方式跟随 `rewriteMode`） |
+| `autoDreamDays` | `7` | 启动整理：启动时与轮末检查当前（最近使用的）工作区，距上次（自动或手动）整理满 N 天就在后台整理一次；`0` 关闭（0–365）。没有常驻定时器 |
+| `autoDreamPortrait` | `false` | 自动整理（启动时）是否顺带重写画像；默认关——画像由 `autoPortraitHours` 自动刷新负责。手动 Dream 仍会刷新一版进待审 |
+| `autoPortraitHours` | `6` | 自动刷新全局画像：每 N 小时检查一次，有新素材时调用模型重写；`0` 关闭（0–168）。面板「立即刷新」只是兜底 |
 | `captureMode` | `"direct"` | `direct` 直接落库；`draft` 先进待审队列 |
 | `staleDays` | `60` | 体检里「过期未用」的判定天数 |
 | `autoCaptureMinChars` | `600` | 太短的轮次不提炼 |
@@ -512,7 +517,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/redline/history` | 红线当前版本 + 旧版本列表 |
 | POST | `/redline/rollback` | 红线回滚（必须 `confirm: true`；当前版本先写回历史） |
 | POST | `/settings` | 写设置 |
-| GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数、待确认矛盾对（词法线索；Dream 只报告，逐对确认后才归档）、files 引用失效、overBudget 超预算信号（只报告）；另含 `maintenance`（启动整理：间隔、上次/下次、最近摘要、运行态） |
+| GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数、待确认矛盾对（词法线索；Dream 只报告，逐对确认后才归档）、files 引用失效、overBudget 超预算信号（只报告）；另含 `maintenance`（启动整理间隔 / 上次 / 下次 / 摘要、`autoPortraitHours` 与全局画像 `updatedAt`、运行态） |
 | POST | `/health/resolve` | 一键处理：`merge`（合并簇，可带 `title/category/tags/content` 覆盖合并稿；红线与矛盾对会被拒绝）/ `time-order`（对一对矛盾按时序归档旧条，红线 / 置顶 / 用户旧条 / 外部新条会被拒绝）/ `archive`（归档过期）/ `unlink`（摘除断链） |
 | GET | `/timeline` | 全部记忆（含归档、不含草稿）按更新时间倒序 |
 | GET | `/portrait` | 当前画像（工作区 + 全局）、版本列表、段落定义 |
@@ -520,9 +525,9 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/portrait/history` | 画像版本列表（降序） |
 | GET | `/portrait/export` | **画像导出**（轻量）：全局画像（含版本历史）+ 全部红线；`POST /import` 识别该载荷自动回灌（导入即入画像） |
 | GET | `/portrait/diff` | 两个版本的逐段 diff（`from=previous` 默认，返回 `+`/`−` 行与摘要） |
-| POST | `/portrait/rewrite` | 触发画像重写（`captureMode` 决定直写或进待审） |
+| POST | `/portrait/rewrite` | 触发画像重写（`scope=global` 为面板默认；`captureMode`/`rewriteMode` 决定直写或进待审） |
 | POST | `/portrait/migrate` | 跨 App 迁移画像：粘贴其它应用 AI 按提示词总结的画像 JSON，与全局画像整合（LLM 整合，失败降级段落合并） |
-| GET | `/portrait/draft` | 读取待审重写稿（批准前对模型不可见） |
+| GET | `/portrait/draft` | 读取待审重写稿（默认全局；`scope=workspace` 读工作区旧稿） |
 | POST | `/portrait/draft/approve` | 批准重写稿：落库、旧版留档、清待审文件 |
 | POST | `/portrait/draft/discard` | 丢弃重写稿 |
 | GET | `/queue` | 待审草稿队列 |
@@ -577,17 +582,22 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 - **标签清理**：写法不同、意思相同的标签（`DSH` / `dsh` 这类大小写漂移）列成候选，
   一键合并为最常见的写法（后端 `POST /tags/merge`，含全局库与草稿）。
   档案「按标签分组」排布的显示名也会自动归并大小写变体。
-- **启动整理**：每次打开 DSH 时检查一次，距上次（自动或手动）整理满 `autoDreamDays`
+- **启动整理**：启动时与每次轮末检查一次，距上次（自动或手动）整理满 `autoDreamDays`
   （默认 7 天）就在后台跑一次 Dream 的安全子集（合并重复簇、报告矛盾与过期；**不自动归档矛盾**）；
   没有 `setInterval` / daemon，也不占对话轮次，失败只记宿主日志。
-  启动时若还拿不到模型路由，本地整理照跑，画像重写留到第一个轮末补一次。
+  启动时若还拿不到模型路由，本地整理照跑；画像由下面的自动刷新在下一个轮末补。
   维护页顶部显示「上次自动整理 / 到期日 / 上次结果」，设置 → 治理可调间隔或关掉（0 = 关闭）。
+- **自动刷新画像（主路径）**：每 `autoPortraitHours`（默认 6 小时）检查一次；当前工作区有比全局画像
+  更新的素材时，用当前会话模型把**全局画像**重写一版——只借工作区近况当上下文，不把工作区规则 / 红线 /
+  taint 写进用户画像。版本 +1、旧版留档、每段带证据；`rewriteMode: draft` 时进待审（面板预览 / 批准）。
+  触发点是 `turn/end` 与会话销毁，没有常驻定时器；面板「立即刷新」只是兜底。
 - **Dream（手动补跑）**：一键半自动整理，与启动整理同一管线——
   合并重复簇（原条目归档可恢复；红线不参与，来源里只要有一条置顶，合并结果就保持置顶）、
   **按词法线索报告矛盾**（只列出候选对，不自动归档；确认后在收件箱点「按时序归档旧条」，
   才保留新结论、归档旧结论并留下 `supersededBy` 回滚链接。词法线索会误报——真实库上出现过
   把「竞争定位」和「autoCapture 默认值」判成矛盾的情况，所以自动整理不再碰这一项）、
-  报告过期未用（只报告不归档，由人决定）、把画像重写送进待审。
+  报告过期未用（只报告不归档，由人决定）。手动跑还会顺带刷新一版画像（进待审），
+  但画像的正常更新由上面的自动刷新负责。
   报告显示「合并几簇 / 待确认矛盾几条 / 过期几条 / 画像状态」。
   画像重写需要可用的模型会话：无会话 / 无原料 / 未启用 / 正在重写时显示「已跳过（原因）」，
   不计入失败；真实失败显示步骤与明细（明细是人话，不再只丢一个 `no_json`；宿主日志里另留一条脱敏摘要）。
@@ -644,7 +654,7 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、579 项：
+14 个套件、580 项：
 
 - `store` 150 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、

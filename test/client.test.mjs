@@ -2077,10 +2077,10 @@ await test('画像卡：重写按钮触发 /portrait/rewrite（scope=global）�
   );
 });
 
-await test('画像卡：待审重写稿——预览与批准', async () => {
-  store.portraitDraftWrite(WS, {
+await test('画像卡：待审重写稿——预览与批准（全局）', async () => {
+  store.portraitDraftWrite('', {
     sections: [{ key: 'background', text: '待审背景。' }],
-    basedOn: { version: store.portrait(WS)?.version || 0 },
+    basedOn: { version: store.portrait('')?.version || 0 },
   });
   fetchCalls.length = 0;
   renderPage('zh');
@@ -2097,9 +2097,9 @@ await test('画像卡：待审重写稿——预览与批准', async () => {
   assert.ok(approve, '缺少批准按钮');
   mini.click(approve);
   await settle(12);
-  assert.equal(store.portraitDraftRead(WS), null, '批准后待审清空');
+  assert.equal(store.portraitDraftRead(''), null, '批准后全局待审清空');
   assert.equal(
-    store.portrait(WS).sections.find((s) => s.key === 'background').text,
+    store.portrait('').sections.find((s) => s.key === 'background').text,
     '待审背景。',
   );
   assert.ok(

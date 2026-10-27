@@ -24,7 +24,7 @@ description: DSH 记忆插件的推送、备份线维护与正式发版流程。
 2. **正式标签只在 `main` 头**。不在 `lab` 上打 `v*`；标签提交必须与 `main` 同一提交。
 3. **只用 REST 通道**。所有推送走 `node tools/push.mjs` / `node tools/release.mjs`；不要用 `git push`，也不要在同一条分支上混用两种通道（P3）。
 4. **版本号必须是正式号**。`package.json` 不能带 `-lab.N`；标签 `vX.Y.Z` 必须与它逐字对应。
-5. **全量测试全绿才发**。`node test/run-all.mjs` 必须 14 套件 / 579 断言通过；纯文档改动可跳过，但发版提交包含 `package.json`，不能跳过。
+5. **全量测试全绿才发**。`node test/run-all.mjs` 必须 14 套件 / 580 断言通过；纯文档改动可跳过，但发版提交包含 `package.json`，不能跳过。
 6. **不改写历史**。已推送的 `lab` 不 amend、不 rebase、不 force push（P2）；`main` 快进失败就停下来查分叉（P1）。
 7. **不发布未跟踪内容**。`.probe/`、本地审计材料等未跟踪文件不进入发布提交；不要为了发版把它们 `git add` 进去。
 
@@ -79,7 +79,7 @@ node tools/status.mjs                           # 两条线的头、通道与最
 node test/run-all.mjs
 ```
 
-必须看到「全部 14 个套件通过」且断言数为 579。测试红就停在 `lab` 修，不要提交发版号、不要打标签。
+必须看到「全部 14 个套件通过」且断言数为 580。测试红就停在 `lab` 修，不要提交发版号、不要打标签。
 
 ### 2. 提交并推送 lab
 
@@ -183,7 +183,7 @@ git checkout lab
 ### 正式发版（明确一起推 main）
 
 - [ ] `package.json` 版本 = 标签版本 = Release 标题
-- [ ] `node test/run-all.mjs`：14 套件 / 579 断言全绿
+- [ ] `node test/run-all.mjs`：14 套件 / 580 断言全绿
 - [ ] 远端 `lab`、`main`、`vX.Y.Z` 指向同一提交或内容等价的提交
 - [ ] `publish` 的 stable 任务成功
 - [ ] Release 是 Latest、非 prerelease、资产齐全

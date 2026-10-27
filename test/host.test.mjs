@@ -53,7 +53,8 @@ check('Config 解析空对象得到默认值', () => {
   assert.equal(value.falsifierReviewDays, 90);
   assert.equal(value.captureSubagents, false, '子代理会话默认不参与自动提炼');
   assert.equal(value.autoDreamDays, 7, '启动整理默认每 7 天一次');
-  assert.equal(value.autoDreamPortrait, true, '启动整理默认顺带重写画像');
+  assert.equal(value.autoDreamPortrait, false, '启动整理默认不重写画像（画像由自动刷新负责）');
+  assert.equal(value.autoPortraitHours, 6, '画像默认每 6 小时自动刷新');
   assert.equal(value.sectionOrder, 550);
   assert.equal(value.directory, '');
   assert.equal(value.autoInject, true, '注入总闸默认开');
