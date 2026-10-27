@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-563%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Tests](https://img.shields.io/badge/tests-579%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -41,11 +41,11 @@ pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory/releas
 
 公共 npm 源随 `v*` 标签自动发布（仓库需一次性配置 `NPM_TOKEN`，见 `.github/workflows/publish-npmjs.yml`）；配好之后也可以直接 `dsh plugin --profile web add @bangbang-03/dsh-memory`。
 
-- 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼。
+- 宿主半 `lib/index.js`：系统提示注入（索引/全文双模式）、轮末相关召回、`memory` 工具、`/memory/api` 路由、轮次结束自动提炼、打开 DSH 后的启动整理。
 - 客户端半 `lib/client.js`：设置面板里的「记忆」页，三个 tab——**记忆库**（首页只留常驻红线、默认展开的记忆画像与「需要处理」；原料、搜索、整理、导入、迁移、日志收进默认收起的「原料与依据」抽屉；库为空时换成「怎么开始」的引导卡）、**维护**（按系统状态 / 需要我处理 / 自动提炼 / 历史记录排，后者默认收起）、设置（注入 / 记录 / 治理 / 高级与数据四组，保存条吸底）。
-- 纯逻辑层：`lib/store.js`（存储）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
+- 纯逻辑层：`lib/store.js`（存储）、`lib/dream.js`（整理管线）、`lib/distill.js`（提炼）、`lib/api.js`（HTTP 契约），都不依赖 DSH，可独立测试。
 
-## 新增：对齐市场同类后补的十四处
+## 新增：对齐市场同类后补的十五处
 
 | 机制 | 怎么用 | 默认 |
 | --- | --- | --- |
@@ -62,6 +62,7 @@ pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory/releas
 | 跨层派生链 | 记忆 → 画像 → AGENTS.md 每一层都记下它是从哪些源、哪个版本抄来的（`derivations.json`）；源被删 / 被归档 / 被取代 / 被改写时，**这层派生自动标脏**并沿链向上传递；`GET /derivations` 可查，维护页有「派生链」卡 | 自动 |
 | 失效条件与复审 | 记忆可写 `falsifier`（什么情况出现就说明它不再成立，正文里的「失效条件：…」也会被识别）；带失效条件的记忆自动排期复审，到期进复审队列；`GET /reviews` 与 `action=review` 处理 | `falsifierReviewDays: 90` |
 | 整库快照（后悔药） | 每天第一次写入、以及每次 Dream 动手前，把整个库复制到 `<库根>/backups/<时间戳>-<原因>/`，轮转只留 7 份；`GET /backups` / `POST /backup` 或维护页「立即备份」。恢复 = 手工把某一份拷回库目录（面板**不会**自动覆盖当前数据）；只写库根，绝不碰工作区 | 自动 |
+| 启动自动整理 | 每次打开 DSH 后检查一次：当前（最近使用的）工作区距上次（自动或手动）整理满 `autoDreamDays` 天，就在后台跑一次 Dream 的安全子集（合并重复簇、按词法线索报告矛盾、报告过期；画像可选）。**不会自动归档矛盾**（词法会误报），也**没有常驻定时器、不占对话轮次**；维护页显示上次结果与到期日 | `autoDreamDays: 7` |
 | 空库引导 | 记忆库为空时，首屏给的是「怎么开始」而不是「这里空」：三条路径（对话里说「记住……」/ 一键开启自动提炼 / 扫别处的记忆）+ 三个按钮，其中「开启自动提炼」直接把 `autoCapture` 打开 | 自动 |
 
 ## v0.3.0「百家记忆」：借鉴了谁
@@ -186,6 +187,8 @@ JWT / 私钥 / `Bearer` / `password: …` 赋值 / 带凭据的数据库 URI）�
    按 `minConfidence` 过滤。`captureMode: direct`（默认）直接落库；`captureMode: draft` 先落草稿进
    **审批队列**，面板批准（可顺手改）后才生效——草稿若挂着 `supersedes`，批准即兑现版本链。
    刻意**不**监听 `agent/turn-stopping` —— 那个事件是串行 await 的，长活在它里面会拖住轮次收尾。
+   打开 DSH 后还会按 `autoDreamDays`（默认 7 天，0 = 关）检查一次到期，满了就在后台跑一次 Dream
+   的安全子集（合并重复簇、按词法线索报告矛盾、报告过期；画像可选）——没有常驻定时器，也不占对话轮次。
 5. **路径 JIT**（`pathRecall`，默认开）。给记忆挂 `files`（`memory save` 新增 `files` 参数），
    工具触达这些文件时（`tools/pre-execute` 只观察不裁决），相关记忆在**下一个 pre-step 以尾部消息注入**——
    「刚触达：`lib/store.js`。以下是挂在这些文件上的记忆……」。匹配强度：全路径 > 目录后缀 > 同名文件；
@@ -267,41 +270,44 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 
 | 分支 | 角色 | 什么时候用 | 推到哪儿 |
 | --- | --- | --- | --- |
-| `lab` | 实验线（默认） | 平时开发、日常装机 | GitHub Packages 的 `lab` dist-tag + 固定 tag `lab-latest` 的预发布 |
-| `main` | 稳定线 | 攒够了、验证过的版本 | `latest` dist-tag + `vX.Y.Z` 正式 Release |
+| `lab` | 实验线（默认，永远比 `main` 新一版） | 平时开发、日常装机 | GitHub Packages 的 `lab` dist-tag + 固定 tag `lab-latest` 的预发布 |
+| `main` | 备份线（默认落后 `lab` 一版） | 保存上一个 lab 推送前的状态；发版时追平 | `latest` dist-tag + `vX.Y.Z` 正式 Release |
 
 - 往 `lab` 推一次提交，CI 就发一个预发布 `X.Y.(Z+1)-lab.<run_number>`：版本号天然唯一，
   不覆盖 `latest`，正式发 `X.Y.Z` 时又排在所有 `-lab.N` 之上，semver 顺序不会拧。
   同时刷新固定 tag `lab-latest` 的预发布资产 `dsh-memory-lab.tgz`。
-- 确认稳定后：把 `lab` 快进到 `main`（`git checkout main && git merge --ff-only lab`）、`package.json` 改成正式版本号，再打 `vX.Y.Z` 标签，
+- 默认每次推 `lab` 后，把 `push.mjs` 输出的 **`base`**（推之前旧 lab 头在本地的对应提交）快进到 `main`；
+  这样 `main` 永远落后 `lab` 一版，不会提前吃掉未验证的提交。只有明确说「一起推 main」或正式发版时，才把 `main` 追平当前 `lab`。
+- 正式发版（明确一起推 main）：`main` 追平 `lab`、`package.json` 改成正式版本号，再打 `vX.Y.Z` 标签，
   CI 发 `latest` 并建正式 Release（资产 `dsh-memory-latest.tgz`）。
 - 通道切换就是重跑安装命令：`install.ps1 -FromRelease`（默认 lab）/ `-Channel stable`。
   两个通道解包到同一个 `~/.dsh/plugins/dsh-memory`，切换是原地替换。
 
-**日常开发流程**（lab 开发 → 测过 → 本地 main 快进 → 推 GitHub 的 lab 和 main）：
+**日常开发流程**（lab 开发 → 测过 → 推 lab → main 只追到上一版 lab）：
 
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 563 条断言
-git add -A; git commit -m "feat: …"
-git push origin lab                    # 推 lab，CI 立刻发预发布
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 579 条断言
+git add <改动的文件>; git commit -m "feat: …"   # 不要用 git add -A（.probe/ 是本地材料）
 
-git checkout main && git merge --ff-only lab   # main 只快进，不在上面直接提交
-git push origin main
+$out = node tools/push.mjs --branch lab; $out   # 输出 base = 上一版在本地的对应提交
+# 输出 synced yes（已经同步）时跳过下面三行
+$base = ($out | Select-String '^base ' | Select-Object -First 1).Line.Split()[1]
+git checkout main; git merge --ff-only $base   # main 只追到上一版 lab
+node tools/push.mjs --branch main
+git checkout lab
 
 node tools/status.mjs                  # 两条线的头、lab/stable 通道、最近几次 CI
 pwsh -File install.ps1 -FromRelease    # 装刚发出去的实验版
 
-# 攒够一个版本、验证稳定之后（main 上）：package.json 改成正式版本号并提交
-git tag vX.Y.Z && git push origin main --tags  # 打标签 → 正式版（Release 资产由 CI 建）
+# 攒够一个版本、验证稳定之后：按 skills/release/SKILL.md 走正式发版
 ```
 
-`git push` 优先，但本机 `github.com:443` **时通时不通**（2026-10-19 实测：短时可用，几分钟后又连续超时；
-每次失败要等约 21 秒）。所以日常用工作区根的 `promote.ps1`：先试 git，失败自动转 REST 兜底
-（`tools/push.mjs` / `tools/release.mjs`，`-Channel rest` 跳过探测），最后核对远端 ref。
-**两条通道别混用**——REST 重建的提交时区归一到 `+0000`，内容相同但 SHA 不同，混推会让两条线出现平行提交
-（本轮就处理过一次）。手动恢复：`git fetch` 后确认 `git diff <本地> <远端>` 为空，再把本地线
+本机 `github.com:443` **时通时不通**（2026-10-19 实测：短时可用，几分钟后又连续超时；每次失败要等约 21 秒）。
+仓库内的推送统一走 GitHub REST API：`tools/push.mjs` 推分支，`tools/release.mjs` 推 `main` + 打标签。
+**不要和 git 混用同一条分支**——REST 重建的提交时区归一到 `+0000`，内容相同但 SHA 不同，混推会让两条线
+出现平行提交（本轮就处理过一次）。手动恢复：`git fetch` 后确认 `git diff <本地> <远端>` 为空，再把本地线
 `reset --hard` 到远端，之后统一只用一种通道。
 
 `tools/sync.mjs` 是反方向的 `git pull`：按 GitHub API 把远端所有分支与标签逐个对象重建到本地
@@ -344,18 +350,26 @@ pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory@lab" `
 ### 发布新版本（维护者）
 
 发布全在 CI 里做（本机 PAT 没有 `write:packages`），本地只负责推提交和打标签。
-两条线怎么分工见上面的「分支与发布通道」。
+两条线怎么分工见上面的「分支与发布通道」，完整步骤与验收见
+[`skills/release/SKILL.md`](skills/release/SKILL.md)。
 
 ```powershell
-# 实验版：推 lab 就有，不用手动发
-git push origin lab
+# 实验版：推 lab 就有，不用手动发；main 默认只追到上一版
+$out = node tools/push.mjs --branch lab; $out   # 输出 synced yes（已经同步）时跳过下面三行
+$base = ($out | Select-String '^base ' | Select-Object -First 1).Line.Split()[1]
+git checkout main; git merge --ff-only $base
+node tools/push.mjs --branch main
+git checkout lab
 
-# 稳定版：在 main 上打 v<package.json 版本> 标签
-git tag vX.Y.Z; git push origin main --tags
+# 稳定版（明确一起推 main）：先在 lab bump 版本并跑全量测试，再快进 main、打标签
+git checkout main; git merge --ff-only lab
+node tools/release.mjs
+node tools/release-watch.mjs
 ```
 
-git 通道不通时，同样的动作可用 `node tools/push.mjs`（推 lab）与 `node tools/release.mjs`
-（推 main + 打标签）走 GitHub REST API 兜底；**别和 git 混用同一条分支**（SHA 会不同，见上面「日常开发流程」的说明）。
+本机 `git push` 不通是常态；仓库内的推送统一走 REST API（`tools/push.mjs` / `tools/release.mjs`）。
+**不要和 git 混用同一条分支**——REST 重建的提交时区归一到 `+0000`，内容相同但 SHA 不同，
+混推会让两条线出现平行提交（本轮就处理过一次）。
 
 CI（`.github/workflows/publish.yml`）在 `lab` 分支推送时发 `-lab.<run_number>` 预发布，
 在 `v*` 标签时发 `latest` 正式版；两条线都先跑 5 个纯逻辑层套件，任一套件失败就不发。
@@ -390,6 +404,9 @@ CI（`.github/workflows/publish.yml`）在 `lab` 分支推送时发 `-lab.<run_n
   每段右侧还有「编辑本段」：只改当前段，其他段的证据保留；改过的段会变成「未溯源」。
   段落下方的证据标签可点：记忆显示来源标题、正文与归档状态，工作日志显示当天原文。
   工作区画像不再单独展示，只保留全局画像。
+  重写结果解析有容错：模型把换行直接敲进 JSON 字符串、末尾留逗号、输出被截断、字符串引号没转义，
+  这几种都能捞回来（`no_json` 不再是「重写必挂」的默认结局）；第一次没按 JSON 输出会用更严格的提示再试一次。
+  截断与整体坏掉属于**有损**抢救，结果一律改送待审、面板上标明有损，不静默覆盖你手写的画像。
 - **需要处理**：待审草稿 / 待确认矛盾 / 复审到期 / 过期未用 / 失效文件 / 超预算的合计；
   点「查看全部」在首页展开收件箱：待审草稿可批准 / 拒绝，复审到期可标记已复审，
   过期未用可全部归档；待确认矛盾与失效文件给「去整理」入口。没有待处理项时明确显示「没有需要处理的项」。
@@ -454,6 +471,8 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `turnRecallLimit` | `3` | 每轮召回条数（1–10） |
 | `sectionOrder` | `550` | 注入段落在系统提示里的位置 |
 | `autoCapture` | `false` | 轮次结束自动提炼 |
+| `autoDreamDays` | `7` | 启动整理：每次打开 DSH 时检查当前（最近使用的）工作区，距上次（自动或手动）整理满 N 天就在后台整理一次；`0` 关闭（0–365）。没有常驻定时器 |
+| `autoDreamPortrait` | `true` | 启动整理是否顺带重写画像（一次模型调用；落库方式跟随 `rewriteMode`） |
 | `captureMode` | `"direct"` | `direct` 直接落库；`draft` 先进待审队列 |
 | `staleDays` | `60` | 体检里「过期未用」的判定天数 |
 | `autoCaptureMinChars` | `600` | 太短的轮次不提炼 |
@@ -493,7 +512,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | GET | `/redline/history` | 红线当前版本 + 旧版本列表 |
 | POST | `/redline/rollback` | 红线回滚（必须 `confirm: true`；当前版本先写回历史） |
 | POST | `/settings` | 写设置 |
-| GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数、待确认矛盾对（词法线索；Dream 按时序处理安全项，其余只报告）、files 引用失效、overBudget 超预算信号（只报告） |
+| GET | `/health` | 体检：重复簇、过期未用、断链、待审草稿数、待确认矛盾对（词法线索；Dream 只报告，逐对确认后才归档）、files 引用失效、overBudget 超预算信号（只报告）；另含 `maintenance`（启动整理：间隔、上次/下次、最近摘要、运行态） |
 | POST | `/health/resolve` | 一键处理：`merge`（合并簇，可带 `title/category/tags/content` 覆盖合并稿；红线与矛盾对会被拒绝）/ `time-order`（对一对矛盾按时序归档旧条，红线 / 置顶 / 用户旧条 / 外部新条会被拒绝）/ `archive`（归档过期）/ `unlink`（摘除断链） |
 | GET | `/timeline` | 全部记忆（含归档、不含草稿）按更新时间倒序 |
 | GET | `/portrait` | 当前画像（工作区 + 全局）、版本列表、段落定义 |
@@ -518,7 +537,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | POST | `/import-scan` | 按来源 id 或路径导入，用户级来源自动进全局库 |
 | GET | `/mirror` | 取当前工作区镜像的 Markdown |
 | POST | `/capture` | 立刻提炼一次（`captureMode` 决定落库还是进队列） |
-| POST | `/dream` | Dream 一键整理：合并重复簇（红线不参与、置顶结果保持置顶）+ 按时序归档矛盾旧结论（保护项留待确认）+ 报告过期未用 + 画像重写进待审（只手动触发） |
+| POST | `/dream` | Dream 整理（手动补跑；与「启动整理」同一管线）：合并重复簇（红线不参与、置顶结果保持置顶）+ 按词法线索报告矛盾（**不自动归档**，逐对确认走 `/health/resolve time-order`）+ 报告过期未用 + 画像重写进待审 |
 | GET | `/sessions` | 会话检索（溯源）：按词重叠搜回当轮用户发言原文 + sessionId/turn |
 | GET | `/injections` | 注入审计：最近真正进 prompt 的内容（正文预览 + sha256 前 16 位 + id 列表 + 被挤掉的条目；`full=1` 给原文，`kind` 可过滤） |
 | GET | `/derivations` | 跨层派生链：每层派生了什么、源现在还成不成立（`state` 为 `fresh` / `dirty`，带失效原因） |
@@ -558,14 +577,20 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 - **标签清理**：写法不同、意思相同的标签（`DSH` / `dsh` 这类大小写漂移）列成候选，
   一键合并为最常见的写法（后端 `POST /tags/merge`，含全局库与草稿）。
   档案「按标签分组」排布的显示名也会自动归并大小写变体。
-- **Dream**：一键半自动整理（对标 meow / mneme / prime 的 dream，但只手动触发）——
+- **启动整理**：每次打开 DSH 时检查一次，距上次（自动或手动）整理满 `autoDreamDays`
+  （默认 7 天）就在后台跑一次 Dream 的安全子集（合并重复簇、报告矛盾与过期；**不自动归档矛盾**）；
+  没有 `setInterval` / daemon，也不占对话轮次，失败只记宿主日志。
+  启动时若还拿不到模型路由，本地整理照跑，画像重写留到第一个轮末补一次。
+  维护页顶部显示「上次自动整理 / 到期日 / 上次结果」，设置 → 治理可调间隔或关掉（0 = 关闭）。
+- **Dream（手动补跑）**：一键半自动整理，与启动整理同一管线——
   合并重复簇（原条目归档可恢复；红线不参与，来源里只要有一条置顶，合并结果就保持置顶）、
-  **按创建时间处理矛盾**（保留新结论、归档旧结论并留下 `supersededBy` 可回滚链接；
-  红线 / 置顶 / 用户手写的旧条 / 外部来源较新的情况不自动覆盖，只报告待确认）、
-  报告过期未用（只报告不归档，由人决定）、把画像重写送进待审。没有后台常驻任务；
-  报告显示「合并几簇 / 时序归档几条旧结论 / 待确认矛盾几条 / 过期几条 / 画像状态」。
+  **按词法线索报告矛盾**（只列出候选对，不自动归档；确认后在收件箱点「按时序归档旧条」，
+  才保留新结论、归档旧结论并留下 `supersededBy` 回滚链接。词法线索会误报——真实库上出现过
+  把「竞争定位」和「autoCapture 默认值」判成矛盾的情况，所以自动整理不再碰这一项）、
+  报告过期未用（只报告不归档，由人决定）、把画像重写送进待审。
+  报告显示「合并几簇 / 待确认矛盾几条 / 过期几条 / 画像状态」。
   画像重写需要可用的模型会话：无会话 / 无原料 / 未启用 / 正在重写时显示「已跳过（原因）」，
-  不计入失败；真实失败显示步骤与明细。
+  不计入失败；真实失败显示步骤与明细（明细是人话，不再只丢一个 `no_json`；宿主日志里另留一条脱敏摘要）。
   记录卡与时间线带写入安全徽标：`可疑`（taint）/ `已脱敏`（redactions）/ `外部来源`（trust=external），
   以及复审徽标：`有失效条件` / `待复审`（到期未复查）。
 
@@ -597,7 +622,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 设置页「从本机既有记忆导入」→ **扫描本机** → 每个来源显示文件数、格式与可拆出的条数 → 单独导入或**全部导入**。
 扫描本身**只读**：不改动来源文件（有测试守着）。空正文的小节会被丢掉，不留空记忆。
 
-## 近期改动（lab，未发版）
+## 近期改动（0.6.4）
 
 - **信息架构收口**：顶部三页签（记忆库 / 维护 / 设置）；记忆首页只留常驻红线、默认展开的画像、
   「需要处理」收件箱和默认收起的「原料与依据」抽屉。自动提炼不再是独立页签，手动触发与日志并入维护页。
@@ -619,14 +644,14 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、563 项：
+14 个套件、579 项：
 
 - `store` 150 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、
   草稿四不可见、重复簇聚类与合并、体检（重复/过期/断链/草稿）、索引简报预算、镜像版本链线索、keywords 加权、unlink；
   v0.5.0：日志层 journal（按天 `journal/YYYY-MM-DD.md`、只追加，是画像重写的上游原料）、画像的读写与草稿；
   v0.5.1：曝光 / 打开 / 引用三分账（曝光不抬排序）、曝光未用体检与 Dream 报告；
-  lab（未发版）：红线改稿历史 / 回滚 / 冲突检查、红线与矛盾对不参与合并、置顶合并继承、
+  0.6.4：红线改稿历史 / 回滚 / 冲突检查、红线与矛盾对不参与合并、置顶合并继承、
   按时序保留新结论并归档旧结论。
 - `retrieval` 14 项 —— 检索层：BM25F（字段权重 / IDF / 长度归一）、精确短语、related 一跳、同义词查询扩展、
   `search` / `list` 集成、`recallByFiles` 路径召回（全路径 > 后缀 > 同名、limit / excludeIds / 盘符归一），
@@ -642,8 +667,9 @@ npm test          # 或 node test/run-all.mjs
   重复晋升幂等；体检列出失效的派生条目。
 - `verification` 12 项 —— 可执行校验：显式 `falsifier` 与正文里「失效条件：…」的提取、显式空串清除、
   默认 90 天排期与可配置 TTL、复审队列（到期 / 即将到期）、复审后推后到期时间、体检列出到期项。
-- `portrait` 39 项 —— 画像层：段落模型与预算截断、Markdown 渲染与解析、重写输入的拼装、
-  模型输出的容错解析、工作区 / 全局两份注入渲染；v0.6：版本 diff（行级 LCS、+/- 渲染、一行摘要）。
+- `portrait` 46 项 —— 画像层：段落模型与预算截断、Markdown 渲染与解析、重写输入的拼装、
+  模型输出的容错解析（裸换行 / 尾逗号无损修复、截断与整体坏掉的有损抢救、干净输出标 `degraded=none`）、
+  工作区 / 全局两份注入渲染；v0.6：版本 diff（行级 LCS、+/- 渲染、一行摘要）。
 - `markdown` 41 项 —— WorkBuddy 笔记/日报、Qoder frontmatter、纯文本、格式识别、粗体子标题
   再切一层、Qoder 索引页剔除、本机扫描只读；v0.6：来源扩到 Claude Code / Codex / Windsurf
   （递归扫 `~/.claude/projects/*/memory`、`~/.codex/memories`、`~/.codeium/windsurf/memories`，
@@ -653,22 +679,23 @@ npm test          # 或 node test/run-all.mjs
 - `api` 84 项 —— 51 个端点（49 条路径）、错误码、参数校验、按路径/文本导入与来源扫描；v0.3.0：
   /health 与 /health/resolve、/timeline、草稿队列（批准带编辑 / 拒绝 / 带 supersedes 的批准兑现版本链）、
   /save 带 supersedes 与 /supersede/rollback；v0.6：`GET /portrait/diff`（上一版 → 当前版的逐段 diff）；
-  lab（未发版）：`GET /record` 依据下钻、`/redline/check` 冲突检查、`/redline/update` 改稿审计、
+  0.6.4：`GET /record` 依据下钻、`/redline/check` 冲突检查、`/redline/update` 改稿审计、
   `/redline/history` 与 `/redline/rollback`、Dream 时序矛盾归档与 `/health/resolve time-order`。
 - `host` 12 项 —— 导出形状、Config 默认值与越界校验。
-- `activate` 47 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
+- `activate` 50 项 —— 假装自己是 cordis，把 `apply()` 真跑一遍（走真实 store 并落盘）：
   工具 save/search/get/forget、全文简报装不下时明说「只列了 N / M 条」、`/memory/api/*` 路由真的应答
   且守好 403/404、手动提炼端到端、面板保存落到工作区镜像、既有记忆扫描导入、数据目录不可用不炸外壳；
   v0.3.0：索引简报（带 id 不展开正文 + full 模式对照）、轮末召回（召回块出现、连续两轮不重复）、
   captureMode=draft 全流程（进队列 → 不进列表 → 日志 drafted → 批准生效）、
   工具 save 带 supersedes（旧条归档、get 展示版本链）；v0.5.0：`action=journal` 写入回读与空文本拒绝、
-  journal API（写 / 读 / 日期校验）、画像重写（draft 进待审、direct 直接落库）、提示段里的写入纪律。
+  journal API（写 / 读 / 日期校验）、画像重写（draft 进待审、direct 直接落库）、提示段里的写入纪律；
+  画像重写容错：严格提示重试一次、两次都失败时的可读明细与脱敏日志、有损结果改送待审。
 - `briefing-stability` 15 项 —— 会话级冻结快照、确定性排序、轮末召回的尾部注入与去重；
   改检索算法时用它守住「系统提示字节稳定」。
 - `client` 62 项 —— 客户端半的模块格式、槽位注册、导航项标记与卸载，以及**真的把设置页渲染出来**
   接到真实 `store` + `api` 上驱动交互（列表 / 搜索 / 新建 / 删除 / 置顶 / 中英文切换 / 后端报错）；
   档案视图的分区与两种排布、整篇编辑、整理、开关即时落库、时间线与维护 tab；
-  lab（未发版）：三页签与首页四块（红线 / 画像 / 需要处理 / 原料抽屉）、红线专用编辑器（预览 / 冲突二次确认 /
+  0.6.4：三页签与首页四块（红线 / 画像 / 需要处理 / 原料抽屉）、红线专用编辑器（预览 / 冲突二次确认 /
   历史回滚）、画像逐段编辑与依据下钻、收件箱就地批准草稿、原料抽屉默认收起、
   Dream 时序矛盾报告与待确认项手动归档。
 - `install` 16 项 —— 在临时目录里搭假 DSH 主目录，真跑 `install.ps1` / `uninstall.ps1`：

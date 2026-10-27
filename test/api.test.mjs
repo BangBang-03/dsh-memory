@@ -589,6 +589,8 @@ await test('GET /health 报告重复、断链与草稿；POST /health/resolve �
   assert.ok(health.body.health.broken.some((b) => b.target === 'mem_missing'), '应报断链');
   assert.ok(health.body.health.drafts >= 1, '应报草稿数');
   assert.ok(health.body.health.duplicates[0][0].title, '重复簇应带标题方便展示');
+  assert.ok(health.body.health.maintenance, '应带启动整理状态');
+  assert.equal(health.body.health.maintenance.running, false, '没有 Dream 在跑');
 
   // 共享 store 里可能有别的测试留下的重复簇，定位本用例造的那一簇。
   const dupCluster = health.body.health.duplicates.find((cluster) =>
@@ -806,6 +808,10 @@ await test('POST /dream：合并重复簇、报告过期，画像未触发时不
       .records.filter((r) => r.archived).length >= 2,
     '原条目应归档可恢复',
   );
+  const ledger = store.maintenanceState(ws);
+  assert.ok(ledger.lastManualAt, '手动 Dream 应写维护台账');
+  assert.equal(ledger.lastReport.merged, 1);
+  assert.equal(ledger.lastReport.portrait, null);
 });
 
 await test('POST /dream：红线不参与自动合并', async () => {
@@ -888,7 +894,7 @@ await test('POST /dream：画像重写无模型 / 无原料时跳过，真实失
   assert.equal(res.body.errors[0].detail, '模型输出解析失败');
 });
 
-await test('Dream 时序矛盾：自动归档旧结论，保护项留给 /health/resolve', async () => {
+await test('Dream 时序矛盾：只报告不归档，确认后走 /health/resolve', async () => {
   const dir = fs.mkdtempSync(path.join(tmp, 'dream-time-order-'));
   const s = createMemoryStore({ dir, mirror: false });
   const ws = path.join(tmp, 'dream-time-order-ws');
@@ -911,9 +917,22 @@ await test('Dream 时序矛盾：自动归档旧结论，保护项留给 /health
     body: { workspace: ws },
   });
   assert.equal(res.status, 200);
-  assert.equal(res.body.contradictionsResolved.length, 1, 'Dream 应按时序归档旧结论');
-  assert.equal(res.body.contradictionsResolved[0].archivedId, oldSafe.id);
-  assert.equal(res.body.contradictionsResolved[0].keptId, newSafe.id);
+  assert.equal(res.body.contradictionsResolved.length, 0, 'Dream 只报告，不自动归档');
+  assert.ok(
+    res.body.contradictionsPending.some((pair) => pair.a === oldSafe.id || pair.b === oldSafe.id),
+    'Dream 应把词法矛盾对列为待确认',
+  );
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, false, '未确认前不得归档旧条');
+  assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false);
+
+  /* 词法线索只是候选；真正归档必须由面板 / 人显式确认。 */
+  res = await api.handle({
+    method: 'POST',
+    pathname: '/memory/api/health/resolve',
+    query: {},
+    body: { workspace: ws, action: 'time-order', ids: [oldSafe.id, newSafe.id] },
+  });
+  assert.equal(res.status, 200);
   assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, true);
   assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false);
 

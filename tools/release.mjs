@@ -60,7 +60,10 @@ console.log("branch  " + branch);
 console.log("version " + version + "  ->  tag " + tag);
 
 if (branch !== "main") throw new Error("稳定版只能在 main 上发（当前在 " + branch + "）；先把 lab 合进 main");
-if (git("status", "--short") !== "") throw new Error("工作区不干净，先提交或清干净：\n" + git("status", "--short"));
+// 未跟踪文件不会进入发布提交或标签树（如 .probe/ 审计材料），不阻塞发版；
+// 已跟踪改动仍必须清干净，否则发布内容与工作区不一致。
+const dirty = git("status", "--porcelain", "--untracked-files=no");
+if (dirty !== "") throw new Error("工作区有未提交的已跟踪改动，先提交或清干净：\n" + dirty);
 if (version.includes("-")) throw new Error("package.json 版本还是预发布号（" + version + "），稳定版要写正式版本号");
 
 const existing = await api("GET", `/repos/${repo}/git/ref/tags/${tag}`).catch((error) => {
@@ -71,30 +74,29 @@ if (existing) throw new Error("远端已经有标签 " + tag + "，改版本号�
 
 if (DRY) {
 	console.log("dry run —— 检查通过，未推未打标签");
-	process.exit(0);
+} else {
+	// 1) 推 main（内部逐提交重建，tree 不一致会自行中止）
+	execFileSync(process.execPath, [path.join(here, "tools/push.mjs"), "--branch", "main"], { stdio: "inherit" });
+
+	// 2) 远端 main 头 = 本地 HEAD 才打标签
+	const head = await api("GET", `/repos/${repo}/git/ref/heads/main`);
+	const localHead = git("rev-parse", "HEAD");
+	if (head.object.sha !== localHead) {
+		console.log("note    远端 main " + head.object.sha.slice(0, 9) + " 与本地 " + localHead.slice(0, 9) + " sha 不同（API 建的提交字节可能不同），按远端头打标签");
+	}
+
+	// 3) 建标签引用（触发 Actions 的 stable 任务）
+	await api("POST", `/repos/${repo}/git/refs`, { ref: "refs/tags/" + tag, sha: head.object.sha });
+	try {
+		git("tag", tag, localHead);
+	} catch {
+		// 本地已有同名标签就重指
+		git("tag", "-f", tag, localHead);
+	}
+
+	// 4) 读回 + 提示
+	const ref = await api("GET", `/repos/${repo}/git/ref/tags/${tag}`);
+	console.log("tag      " + tag + " -> " + ref.object.sha.slice(0, 9));
+	console.log("actions  https://github.com/" + repo + "/actions");
+	console.log("release  https://github.com/" + repo + "/releases/tag/" + tag);
 }
-
-// 1) 推 main（内部逐提交重建，tree 不一致会自行中止）
-execFileSync(process.execPath, [path.join(here, "tools/push.mjs"), "--branch", "main"], { stdio: "inherit" });
-
-// 2) 远端 main 头 = 本地 HEAD 才打标签
-const head = await api("GET", `/repos/${repo}/git/ref/heads/main`);
-const localHead = git("rev-parse", "HEAD");
-if (head.object.sha !== localHead) {
-	console.log("note    远端 main " + head.object.sha.slice(0, 9) + " 与本地 " + localHead.slice(0, 9) + " sha 不同（API 建的提交字节可能不同），按远端头打标签");
-}
-
-// 3) 建标签引用（触发 Actions 的 stable 任务）
-await api("POST", `/repos/${repo}/git/refs`, { ref: "refs/tags/" + tag, sha: head.object.sha });
-try {
-	git("tag", tag, localHead);
-} catch {
-	// 本地已有同名标签就重指
-	git("tag", "-f", tag, localHead);
-}
-
-// 4) 读回 + 提示
-const ref = await api("GET", `/repos/${repo}/git/ref/tags/${tag}`);
-console.log("tag      " + tag + " -> " + ref.object.sha.slice(0, 9));
-console.log("actions  https://github.com/" + repo + "/actions");
-console.log("release  https://github.com/" + repo + "/releases/tag/" + tag);

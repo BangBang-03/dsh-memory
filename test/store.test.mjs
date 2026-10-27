@@ -1299,6 +1299,32 @@ test('时序矛盾：保留新结论、归档旧结论；红线/置顶/用户旧
   assert.equal(s.get(oldRedline.id, { workspace: ws }).archived, false);
 });
 
+test('时序矛盾 dry-run：只报告候选对，不改库（Dream 自动整理走这条）', () => {
+  const s = iso('time-order-dry');
+  const ws = makeWorkspace('v03-time-order-dry');
+  const add = (title, content, source, createdAt, tags) =>
+    s.upsert({ title, content, source, createdAt, tags }, { workspace: ws }).record;
+  const oldSafe = add('部署前必须跑完整测试。', '部署前必须跑完整测试。', 'agent', '2026-01-01T00:00:00.000Z', ['deploy-dry']);
+  const newSafe = add('部署前不要跑完整测试。', '部署前不要跑完整测试。', 'manual', '2026-02-01T00:00:00.000Z', ['deploy-dry']);
+
+  const result = s.resolveContradictionsByTime({ workspace: ws, apply: false });
+  assert.equal(result.resolved.length, 0, 'dry-run 不应归档任何记录');
+  assert.ok(
+    result.pending.some((pair) => pair.a === oldSafe.id || pair.b === oldSafe.id),
+    '应把候选对放进 pending',
+  );
+  assert.ok(result.pending.every((pair) => pair.reason === 'needs_confirmation'));
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, false);
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).supersededBy, null);
+  assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false);
+
+  /* 同一对显式确认后仍可按时序归档。 */
+  const applied = s.resolveContradictionPair(oldSafe.id, newSafe.id, { workspace: ws });
+  assert.equal(applied.ok, true);
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, true);
+  assert.equal(s.get(oldSafe.id, { workspace: ws }).supersededBy, newSafe.id);
+});
+
 test('health：重复簇 / 过期未用 / 断链 / 草稿数', () => {
   const s = iso('health');
   const ws = makeWorkspace('v03-health');
@@ -1535,6 +1561,20 @@ test('unlink：可摘掉指定断链，也可一键清空 related', () => {
   assert.deepEqual(one.record.related, ['mem_b'], '指定摘除应只去掉一个');
   const all = s.unlink(rec.record.id, '', { workspace: ws });
   assert.deepEqual(all.record.related, [], '不带 target 应清空');
+});
+
+test('unlink：supersededBy 也能真正清掉（normalizeRecord 会沿用 existing）', () => {
+  const s = iso('unlink-superseded');
+  const ws = makeWorkspace('v03-unlink-superseded');
+  const old = s.upsert({ title: '旧结论', content: '旧内容' }, { workspace: ws }).record;
+  const next = s.supersede(old.id, { title: '新结论', content: '新内容', source: 'agent' }, { workspace: ws });
+  assert.equal(next.ok, true);
+  assert.equal(s.get(old.id, { workspace: ws }).supersededBy, next.record.id, 'supersede 应留下回滚链接');
+
+  const cleared = s.unlink(old.id, next.record.id, { workspace: ws });
+  assert.equal(cleared.ok, true);
+  assert.equal(cleared.record.supersededBy, null, 'unlink 返回的 record 应已清空');
+  assert.equal(s.get(old.id, { workspace: ws }).supersededBy, null, '落盘后也不应再带链接');
 });
 
 test('mergeTag：合并大小写变体，全局库一并治理', () => {
@@ -2062,6 +2102,58 @@ test('整库快照：库目录不存在时返回 ok:false，不抛异常', () =>
   assert.equal(result.ok, false);
   assert.equal(typeof result.error, 'string');
   assert.deepEqual(s.snapshots(), []);
+});
+
+/* ---------------- 维护台账（启动整理） ---------------- */
+
+test('维护台账：自动 / 手动分别记时，保留最近 10 次与最近一次摘要', () => {
+  const s = createMemoryStore({ dir: path.join(tmp, 'maint-ledger') });
+  fs.mkdirSync(WS_A, { recursive: true });
+  s.upsert({ title: 'a', content: 'x' }, { workspace: WS_A });
+
+  assert.deepEqual(s.maintenanceState(WS_A), {
+    lastAutoAt: null,
+    lastManualAt: null,
+    lastReport: null,
+    runs: [],
+  }, '新库台账应为空');
+
+  const autoAt = '2026-10-01T00:00:00.000Z';
+  s.noteMaintenance(WS_A, {
+    at: autoAt,
+    source: 'auto',
+    report: { merged: 2, archived: 4, portrait: 'saved' },
+  });
+  let state = s.maintenanceState(WS_A);
+  assert.equal(state.lastAutoAt, autoAt);
+  assert.equal(state.lastManualAt, null, '自动不应污染手动时间');
+  assert.equal(state.lastReport.merged, 2);
+  assert.equal(state.runs[0].source, 'auto');
+
+  const manualAt = '2026-10-02T00:00:00.000Z';
+  s.noteMaintenance(WS_A, { at: manualAt, source: 'manual', report: { merged: 1 } });
+  state = s.maintenanceState(WS_A);
+  assert.equal(state.lastAutoAt, autoAt, '手动不应覆盖自动时间');
+  assert.equal(state.lastManualAt, manualAt);
+  assert.equal(state.runs[0].source, 'manual');
+  assert.equal(state.runs.length, 2);
+
+  for (let i = 0; i < 12; i += 1) {
+    s.noteMaintenance(WS_A, { at: `2026-11-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`, source: 'manual' });
+  }
+  assert.equal(s.maintenanceState(WS_A).runs.length, 10, '台账只留最近 10 次');
+});
+
+test('维护台账：损坏 JSON 不抛，返回空台账', () => {
+  const dir = path.join(tmp, 'maint-broken');
+  const s = createMemoryStore({ dir });
+  fs.mkdirSync(WS_A, { recursive: true });
+  s.upsert({ title: 'a', content: 'x' }, { workspace: WS_A });
+  const info = s.workspaceInfo(WS_A);
+  fs.writeFileSync(path.join(dir, 'workspaces', info.folder, 'maintenance.json'), '{oops', 'utf8');
+  const state = s.maintenanceState(WS_A);
+  assert.equal(state.lastAutoAt, null);
+  assert.deepEqual(state.runs, []);
 });
 
 /* ---------------- 结果 ---------------- */

@@ -112,6 +112,31 @@ function fakeLlm(reply, seen = []) {
   };
 }
 
+/**
+ * 依次吐出不同回复的假 LLM：用来测「第一次坏、第二次好」的重试路径。
+ * 回复用完后一直重复最后一条。
+ */
+function seqLlm(replies, seen = []) {
+  let index = 0;
+  return {
+    stream(options) {
+      seen.push(options);
+      const reply = replies[Math.min(index, replies.length - 1)];
+      index += 1;
+      const chunks = [
+        { type: 'block-start', index: 0, blockType: 'text' },
+        { type: 'text-delta', index: 0, text: reply.slice(0, 12) },
+        { type: 'text-delta', index: 0, text: reply.slice(12) },
+        { type: 'block-end', index: 0, block: { type: 'text', text: reply } },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ];
+      return (async function* stream() {
+        for (const chunk of chunks) yield chunk;
+      })();
+    },
+  };
+}
+
 function makeReq({ method = 'GET', url = '/', body = '', headers = {}, remoteAddress = '127.0.0.1' } = {}) {
   const req = new EventEmitter();
   req.method = method;
@@ -196,7 +221,9 @@ fs.mkdirSync(workspace, { recursive: true });
 function activate({ services = {}, ...config } = {}) {
   const dir = fs.mkdtempSync(path.join(tmp, 'data-'));
   const { ctx, calls } = createFakeCtx(services);
-  mod.apply(ctx, { directory: dir, ...config });
+  // 启动整理默认关：这些用例测的是其它路径，不让后台整理在断言之间插进来。
+  // 专项用例会显式传 autoDreamDays 打开。
+  mod.apply(ctx, { directory: dir, autoDreamDays: 0, ...config });
   const tool = calls.tools[0];
   const route = calls.routes[0]?.handler;
   const messages = [
@@ -1668,6 +1695,86 @@ await test('画像重写 draft：进待审 → 批准后生效 → 重复批准 
   assert.equal(again.status, 404, '没有待审稿时应 404');
 });
 
+await test('画像重写：第一次没按 JSON 输出时用严格提示重试一次，然后照常落库', async () => {
+  const seen = [];
+  const { calls, route, session } = activate({
+    services: { llm: seqLlm(['抱歉，我先说一句：这是重写后的背景。', REWRITE_REPLY], seen) },
+  });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '旧背景。' }] }),
+  });
+
+  const res = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/rewrite',
+    body: JSON.stringify({ workspace, scope: 'workspace' }),
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.ok, true);
+  assert.equal(seen.length, 2, '第一次解析失败应只重试一次');
+  assert.match(seen[1].system, /could not be parsed/i, '重试要换成严格 JSON 提示');
+  assert.equal(res.body.drafted, false);
+  assert.equal(res.body.degraded, 'none');
+  assert.equal(res.body.portrait.sections.find((s) => s.key === 'background').text, '重写后的背景。');
+});
+
+await test('画像重写：两次都解析不了时给出可读明细（不是只丢一个 no_json）', async () => {
+  const seen = [];
+  const { calls, route, session } = activate({
+    services: { llm: seqLlm(['抱歉，无法完成这个请求。'], seen) },
+  });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '旧背景。' }] }),
+  });
+
+  const res = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/rewrite',
+    body: JSON.stringify({ workspace, scope: 'workspace' }),
+  });
+  assert.equal(res.status, 500);
+  assert.equal(res.body.ok, false);
+  assert.equal(seen.length, 2, '失败也要重试一次，不能只试一把');
+  assert.match(res.body.detail, /解析失败/, '明细要能读懂');
+  assert.match(res.body.detail, /没有按 JSON 输出/, 'no_json 要翻成人话');
+
+  /* 失败也要留痕：宿主日志里得有这次失败的摘要（脱敏后）。 */
+  const warned = calls.warn.filter((line) => /画像重写解析失败/.test(String(line)));
+  assert.ok(warned.length >= 1, '失败要在宿主日志里留摘要');
+});
+
+await test('画像重写：输出被截断时不直写，改送待审等人确认', async () => {
+  const seen = [];
+  const truncated = '{"sections":[{"key":"background","text":"- 半句话';
+  const { calls, route, session } = activate({ services: { llm: seqLlm([truncated], seen) } });
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/save',
+    body: JSON.stringify({ workspace, sections: [{ key: 'background', text: '旧背景。' }] }),
+  });
+
+  const res = await callRoute(route, {
+    method: 'POST',
+    url: '/memory/api/portrait/rewrite',
+    body: JSON.stringify({ workspace, scope: 'workspace' }),
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.degraded, 'truncated');
+  assert.equal(res.body.drafted, true, '有损输出不能直写，得进待审');
+  assert.equal(seen.length, 1, '能解析出来就不必重试');
+
+  const state = await callRoute(route, { url: '/memory/api/portrait' });
+  assert.equal(state.body.draft, true, '待审稿应在');
+  assert.equal(state.body.workspace.version, 1, '批准前画像不变');
+});
+
 await test('journal API：写与读、空文本 400、指定日期校验', async () => {
   const { calls, route, session } = activate();
   calls.events.find(([name]) => name === 'session/created')[1](session);
@@ -1688,6 +1795,48 @@ await test('journal API：写与读、空文本 400、指定日期校验', async
   assert.equal(bad.status, 400);
   const badDate = await callRoute(route, { url: '/memory/api/journal?date=20x5-13-99' });
   assert.equal(badDate.status, 400);
+});
+
+await test('启动整理：打开 DSH 后自动合并重复簇、写台账并留快照', async () => {
+  const { calls, tool, exec, session, dir, route } = activate({
+    autoDreamDays: 7,
+    autoDreamPortrait: false,
+    dedupe: false,
+  });
+  await tool.execute(
+    { action: 'save', title: '启动整理重复甲', content: '启动整理相同的正文内容' },
+    exec,
+  );
+  await tool.execute(
+    { action: 'save', title: '启动整理重复乙', content: '启动整理相同的正文内容' },
+    exec,
+  );
+  const before = await tool.execute({ action: 'stats' }, exec);
+  assert.match(before.text, /本工作区 2 条/);
+
+  /* 打开会话（真实宿主就是「打开 DSH → 建立会话」）→ 600ms 后自动整理一次。 */
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+
+  const deadline = Date.now() + 8000;
+  let maintenance = null;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const res = await callRoute(route, { url: '/memory/api/health' });
+    maintenance = res.body?.health?.maintenance || null;
+    if (maintenance?.lastAutoAt) break;
+  }
+  assert.ok(maintenance?.lastAutoAt, '启动整理应写维护台账');
+  assert.ok(maintenance.lastReport?.merged >= 1, '应合并重复簇');
+  assert.equal(maintenance.lastReport?.portrait, null, '画像重写关掉时不应触发');
+
+  const after = await tool.execute({ action: 'stats' }, exec);
+  assert.match(after.text, /本工作区 1 条/);
+  assert.match(after.text, /归档 2/);
+  const snapshots = fs.readdirSync(path.join(dir, 'backups'));
+  assert.ok(
+    snapshots.some((name) => name.endsWith('-auto-dream')),
+    '整理前应留一份 auto-dream 快照',
+  );
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

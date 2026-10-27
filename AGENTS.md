@@ -5,8 +5,11 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 
 结构一句话：宿主半 `lib/index.js`（简报注入 / `memory` 工具 / `/memory/api` 路由 / 轮末召回）+
 客户端半 `lib/client.js`（设置面板「记忆」页）+ 其余 `lib/*.js` 纯 Node 逻辑层（不 import 任何 DSH 运行时，可脱离宿主单测）。
+项目级 skill 放在 `skills/`（只对本仓库生效，不安装到 Qoder 用户目录），路由见 2.4。
 
-分支一句话：GitHub 默认分支是 **`lab`**（开发线，永远领先）；**`main` 只是备份线**，只在快进时动。
+分支一句话：GitHub 默认分支是 **`lab`**（开发线，永远比 `main` 新一版）；**`main` 是备份线**，默认只追到
+**上一次推 lab 之前的旧 lab 状态**（`push.mjs` 输出的 `base`，是远端旧头在本地的对应提交）；
+只有正式发版或你明确说「一起推 main」时才追平 `lab`。
 推 `main` 不触发任何 CI —— `.github/workflows/publish.yml` 只监听 `lab` 与 `v*` 标签。
 
 ---
@@ -42,14 +45,14 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 
 | # | 红线 | 违反了会怎样 |
 | --- | --- | --- |
-| **P1** | 只在 `lab` 上提交，**`lab` 必须领先 `main`**；`main` 是备份线，只 `merge --ff-only`，不在上面直接提交、不产生 merge commit | 快进失败 = 两线已分叉，**停下来查清**，不要用 rebase / force 掩盖；`main` 落后就等于备份里没有最新代码 |
+| **P1** | 只在 `lab` 上提交；**默认 `lab` 永远比 `main` 新一版**——推 lab 后用 `tools/push.mjs` 输出的 `base`（远端旧头在本地的对应提交）把 `main` 快进到上一版；只有正式发版或你明确说「一起推 main」时才让 `main` 追平当前 `lab`。`main` 只 `merge --ff-only`，不在上面直接提交、不产生 merge commit | 快进失败 = 两线已分叉，**停下来查清**，不要用 rebase / force 掩盖；把 main 提前追平会让未验证的一版进备份线，落后不止一版则说明默认同步漏了 |
 | **P2** | 已推送的 `lab` 不 amend、不 rebase、不 force push | 远端已开 `allow_force_pushes=false`；改写历史会造平行提交，CI 与其它 clone 全对不上 |
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
-| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 563 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
+| **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 579 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
-| **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**，且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来 |
+| **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**（发版属于默认「落后一版」策略的明确例外），且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来。完整步骤与验收见 `skills/release/SKILL.md` |
 
 ---
 
@@ -66,7 +69,9 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | HTTP 端点、错误码、参数校验 | `lib/api.js` | README「HTTP 契约」表 | `api` |
 | 设置面板 UI（三个 tab、首页红线/画像/收件箱、原料抽屉、维护页、图标标记） | `lib/client.js` | `test/mini-react.mjs`、`locale/*.json` | `client` |
 | 提炼提示词、模型输出容错、触发条件 | `lib/distill.js` | `lib/index.js` 里的 capture 流程 | `distill` |
+| Dream 整理管线（合并重复簇 / 矛盾报告（不自动归档）/ 启动整理触发与台账） | `lib/dream.js` | `lib/index.js` 的 `runStartupDream`、`lib/store.js` 的 `maintenanceState` / `noteMaintenance`、`lib/api.js` 的 `/dream` 与 `/health` | `api` + `activate` + `store` |
 | 画像段落、渲染 / 解析、预算截断、版本 diff | `lib/portrait.js` | `lib/store.js` 的 portrait 段 | `portrait` |
+| 画像重写提示词、模型输出容错解析、失败重试与有损改送待审 | `lib/portrait.js`（`REWRITE_SYSTEM` / `REWRITE_STRICT_SYSTEM` / `parseRewriteResponse`） | `lib/index.js` 的 `runPortraitRewrite`（重试、脱敏日志、degraded 判定） | `portrait` + `activate` |
 | 派生链（记忆 → 画像 → AGENTS.md 的源快照与标脏） | `lib/derivation.js` | `lib/store.js` 的 `promoteToAgents` | `derivation` |
 | 失效条件（`falsifier`）与到期复审 | `lib/store.js` + `lib/api.js` | — | `verification` |
 | 整库快照（`backups/` 轮转、`GET /backups`、`POST /backup`、Dream 前预备份） | `lib/store.js`（`snapshotLibrary` / `snapshots` / `mutate` 里的 `dailySnapshot`） | `lib/api.js` 的 `POST /dream`、`lib/client.js` 维护页「整库快照」卡 | `store` + `api` + `client` |
@@ -74,7 +79,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 质量分与低分闸门 | `lib/quality.js` | `lib/store.js` 的 `qualityFields` | `store` |
 | 既有记忆解析（WorkBuddy / Qoder / Claude Code / Codex / Windsurf） | `lib/markdown.js` | 扫描落点 `memorySourceSpecs()` | `markdown` |
 | 安装 / 卸载 / 远程安装 / 通道切换 | `install.ps1`、`uninstall.ps1` | `cordis.patch.yml` | `install` |
-| 推送、发版、远端同步 | `tools/push.mjs`、`tools/release.mjs`、`tools/sync.mjs`、`tools/status.mjs` | 工作区根 `promote.ps1`、`PLUGIN-WORKFLOW.md` | 见 P6 |
+| 推送、发版、远端同步 | `skills/release/SKILL.md` | `tools/push.mjs`、`tools/release.mjs`、`tools/release-watch.mjs`、`tools/sync.mjs`、`tools/status.mjs` | 见 P6；正式版按 skill 的验收清单 |
 
 ### 2.2 症状 → 先去哪
 
@@ -87,14 +92,18 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | `dsh plugin --profile desktop add …` 被拒 | 正常：desktop profile 由桌面端独占，走 `install.ps1` |
 | 该进简报的记忆没进 | `GET /briefing-preview` 看它是不是被预算挤掉（`briefingLimit` / `briefingMaxChars`） |
 | 自动提炼写了不该写的东西 | 先看 `captureMode` 是不是 `direct`；`draft` 会进待审队列 |
+| 打开 DSH 后没有自动整理 | `autoDreamDays` 是否为 0；工作区是否在 `disabledWorkspaces`；`<库根>/workspaces/<folder>/maintenance.json` 的 `lastAutoAt` 是否已到期；启动时没有模型路由时本地整理照跑、画像留到第一个轮末补 |
 | 库被误删 / 面板点了清空 | 看 `<库根>/backups/`：每天第一次写入 + 每次 Dream 前各留一份，轮转 7 份；拷回目录即恢复（面板不做自动覆盖） |
 | 红线改稿后旧措辞丢失 / 历史回滚无效 | `/redline/update`、`/redline/rollback` 是否带 `confirm: true`；`normalizeRedlineHistory()` 与 `normalizeLoaded()` 是否保留 `redlineHistory`；历史上限 20 版 |
 | Dream / 整理合并了红线、置顶丢失、正反结论被揉成一条 | `clusterDuplicates()` 排除红线与矛盾对；`consolidateCluster()` 返回 `redline_protected` / `contradiction_pair` 并继承 `pinned`；面板整理走 `/health/resolve merge`，不走 `/save` + `/bulk` |
 | Dream 报「N 步出错」但只显示画像未触发 | 画像重写失败码是否被分类为跳过（`no_model_route` / `llm_unavailable` / `no_material` / `disabled` / `already_running` / `no_workspace`）；真实失败应在客户端显示步骤与明细 |
-| Dream 后旧结论仍在 / 待确认矛盾反复出现 | `resolveContradictionsByTime()` 按 `createdAt` 判断新旧；保护边界是红线 / 置顶 / `user_older` / `external_newer` / `mixed_scope`；面板「按时序归档旧条」走 `/health/resolve time-order` |
+| Dream 报「画像：重写结果解析失败（no_json）」 | 模型没按 JSON 输出。`parseRewriteResponse` 已能修裸换行 / 尾逗号、抢救截断与整体坏掉的输出；仍失败时宿主会用 `REWRITE_STRICT_SYSTEM` 重试一次，两次都失败才报错。宿主日志里有一条脱敏摘要（`画像重写解析失败`）可查原文形态 |
+| Dream 后旧结论仍在 / 待确认矛盾反复出现 | 正常：Dream 只报告词法线索，不自动归档。确认一对走 `/health/resolve time-order`；保护边界是红线 / 置顶 / `user_older` / `external_newer` / `mixed_scope` |
 | 红线冲突提示误报 / 漏报 | `redlineConflicts()` 复用 `detectContradictions()` 的疑似矛盾词法规则，是启发式；调阈值/否定词时同步 `store` 与 `api` 的红线测试 |
 | 首页「需要处理」数字与收件箱不一致 | `healthData` / `queueData` / `reviewData` 的拉取条件；收件箱只在 `attentionOpen` 时拉 queue / reviews |
 | 改完代码界面没变 | 宿主半（`lib/index.js` 等）改动要**重启 DSH**；纯客户端改动 `Ctrl+Shift+R` 硬刷新即可 |
+| 正式版没发出去 / Release 不是 Latest / 资产缺失 / npmjs 没更新 | 先跑 `node tools/release-watch.mjs` 看 CI 与 Release 结论；完整流程见 `skills/release/SKILL.md` |
+| `main` 提前追平了未验证的 `lab` / 落后不止一版 | 检查默认推送策略：是否用 `push.mjs` 的 `base` 把 `main` 追到上一版；见 `skills/release/SKILL.md` |
 
 ### 2.3 文档路由
 
@@ -107,13 +116,23 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 与 WorkBuddy 个人记忆的差距 | `docs/personal-memory-parity.md` |
 | 市场同类扫描、插件自查与竞品 | `docs/market-scan-2026-10.md`、`docs/dsh-memory-landscape-2026-10.md` |
 | 头部这一个月的新机制、可抄清单与优先级 | `docs/competitive-delta-2026-10-20.md` |
+| 市场实时榜与**分发堵点根因**（npmjs 未发布 → `dl: null` → 排名沉底） | `docs/market-top10-2026-10-27.md` |
+
+### 2.4 项目级 skills
+
+本仓库自己的 skill 放在 `skills/`，只对本仓库生效，不安装到 Qoder 用户目录。新增或修改 skill 后，在 2.1 加一行路由。
+
+| 想做什么 | 读 |
+| --- | --- |
+| 正式发版、同步 `main`、打 `v*` 标签、核对 Release | `skills/release/SKILL.md` |
+| 新增项目级 skill 的目录与 frontmatter 约定 | `skills/README.md` |
 
 ---
 
 ## 3. 命令速查
 
 ```powershell
-node test/run-all.mjs                  # 14 套件 / 563 断言，改完必跑（P6）
+node test/run-all.mjs                  # 14 套件 / 579 断言，改完必跑（P6）
 node test/store.test.mjs               # 单套件：把 store 换成 retrieval / api / client …
 
 pwsh -File install.ps1 -DryRun         # 只看要改什么，不落盘
@@ -125,11 +144,19 @@ node tools/status.mjs                  # 两条线的头、lab/stable 通道、�
 ```
 
 ```bash
-git push origin lab                             # 平时只推这一条：触发 CI 发 -lab.<run> 预发布
-git checkout main && git merge --ff-only lab    # 同步备份线：main 上唯一允许的动作（不发布任何东西）
-git push origin main                            # 备份上线；publish.yml 不监听 main，静默
-git checkout lab                                # 同步完回开发线
-git tag vX.Y.Z && git push origin main --tags   # 正式版：先快进 main 到 lab，再 bump 版本、打标签
+# 默认：lab 永远比 main 新一版
+out=$(node tools/push.mjs --branch lab); printf '%s\n' "$out"   # 输出里的 base = 上一版在本地的对应提交
+# 输出 synced yes（已经同步）时跳过下面三行（没有新版本可追）
+base=$(printf '%s\n' "$out" | awk '/^base /{print $2; exit}')
+git checkout main
+[ -z "$base" ] || git merge --ff-only "$base"   # main 只追到上一版 lab
+node tools/push.mjs --branch main               # 备份上线；publish.yml 不监听 main，静默
+git checkout lab
+
+# 只有明确说「一起推 main」时才追平当前 lab（git merge --ff-only lab）
+# 正式发版：先在 lab bump 版本并跑全量测试，再快进 main；完整步骤见 skills/release/SKILL.md
+node tools/release.mjs                          # 在 main 上：推 main + 打 v* 标签
+node tools/release-watch.mjs                    # 等 CI + 核对 Release
 ```
 
 ---

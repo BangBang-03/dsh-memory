@@ -48,7 +48,7 @@
 | 检索评测基线 | prime（DSH-MemBench） | P0 | 20 条记忆 × 10 条查询冒烟 + 54 条记忆 × 60 条查询硬评测（同义 / 路径 / 近邻 / 多跳 / 否定 / 标签），Recall@5 / MRR | 已落地（1.000 / 0.930） |
 | 画像版本 diff | memento / Letta | P0 | 行级 LCS；`+`/`−` 渲染；一行摘要；`GET /portrait/diff` | 已落地（纯逻辑 + API + 面板入口） |
 | 写入密钥扫描 + trust | annkun / memento / auto-memory | P0 | 10 类密钥模式脱敏 + 10 类注入模式 + trust 五级；非 user 来源 taint 自动进草稿；`redactSecrets` / `quarantineTainted` 设置可关；面板 `可疑` / `已脱敏` / `外部来源` 徽标 | 已落地（第一层） |
-| dream / 半自动巩固 | meow / mneme / prime | P1 | `POST /dream` + 维护页「整理一次」：合并重复簇（可恢复）、报告过期、画像重写进待审；只手动触发，无后台任务 | 已落地（v0） |
+| dream / 半自动巩固 | meow / mneme / prime | P1 | `POST /dream` + 维护页「整理一次」：合并重复簇（可恢复）、报告过期、画像重写进待审；另在打开 DSH 后按 `autoDreamDays` 自动整理（无常驻定时器） | 已落地（v1） |
 | 路径 JIT | annkun / Gemini | P1 | `tools/pre-execute` 只观察收集路径，下一个 pre-step 尾部注入；`memory save` 新增 `files` | 已落地 |
 | 会话检索 / 溯源 | deja-vu / native-memory | P1 | 每轮用户发言原文落 `sessions.jsonl`（上限 2000 行）；`memory sessions` / `GET /sessions` 返回原话 + turn | 已落地（v0） |
 | 外部记忆导入 | auto-memory / deja-vu | P1 | 扫描 + 导入 Claude Code / Codex / Windsurf；按来源自动打 `claude` / `codex` / `windsurf` 标签 | 已落地 |

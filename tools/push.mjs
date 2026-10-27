@@ -9,6 +9,9 @@
  * base_tree 上拼出新 tree，**tree sha 与本地一致才建提交**（内容不等价就中止，不动 ref）。
  * 远端父提交必须与本地父提交内容一致（tree 比对），所以分叉时它会直接报错而不是强推。
  *
+ * 输出里的 `base` 是远端旧头在本地的对应提交（tree 相同、SHA 可能不同）：
+ * 默认推 lab 后，main 应快进到它，而不是远端旧 SHA。
+ *
  * 远端还没有这条分支时会新建（首推 lab 分支就是这条路）。
  * token 取 GH_TOKEN 环境变量，否则读本机 git credential store 里 github.com 的凭据。
  */
@@ -113,11 +116,12 @@ async function remoteHas(sha) {
 async function collect() {
 	const remoteHeadTree = remoteHead === "" ? "" : treeOf(await remoteCommit(remoteHead));
 	const chain = [];
+	let base = "";
 	let cursor = localHead;
 	while (true) {
 		if (remoteHead !== "") {
-			if (cursor === remoteHead) break;
-			if (localTreeOf(cursor) === remoteHeadTree) break; // 内容基点
+			if (cursor === remoteHead) { base = cursor; break; }
+			if (localTreeOf(cursor) === remoteHeadTree) { base = cursor; break; } // 内容基点：远端旧头的本地对应提交
 		} else if (await remoteHas(cursor)) {
 			break; // 新分支：远端已有这个提交
 		}
@@ -132,14 +136,17 @@ async function collect() {
 		if (chain.length > 100) throw new Error("提交链过长（>100），先 node tools/sync.mjs 对齐");
 	}
 	chain.reverse();
-	return chain;
+	return { chain, base };
 }
 
-const chain = await collect();
+const { chain, base } = await collect();
+if (base) console.log("base     " + base.slice(0, 9) + " " + git("log", "-1", "--format=%s", base));
 if (chain.length === 0) {
+	console.log("synced   yes");
 	console.log("已经同步，没有要推的提交");
 	process.exit(0);
 }
+console.log("synced   no");
 console.log("待推提交  " + chain.length + " 个：");
 for (const sha of chain) console.log("  " + sha.slice(0, 9) + " " + git("log", "-1", "--format=%s", sha));
 if (DRY) {

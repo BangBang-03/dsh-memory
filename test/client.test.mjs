@@ -1391,6 +1391,32 @@ await test('维护页：Dream 按钮调用 /dream 并显示报告', async () => 
   assert.match(body, /Dream 完成/, '应有完成提示');
 });
 
+await test('维护页：自动整理卡显示间隔、上次结果与到期日', async () => {
+  settingsValue.autoDreamDays = 7;
+  settingsValue.autoDreamPortrait = true;
+  store.noteMaintenance(WS, {
+    at: '2026-10-01T00:00:00.000Z',
+    source: 'auto',
+    report: { merged: 2, contradictionsResolved: 1, portrait: 'saved' },
+  });
+  try {
+    renderPage('zh');
+    await settle(8);
+    await clickTab('tabMaintain');
+    await settle(8);
+
+    const body = text();
+    assert.match(body, /自动整理 · 打开 DSH 时/, '应有自动整理卡');
+    assert.match(body, /距上次整理满 7 天/, '应显示间隔');
+    assert.match(body, /上次整理：2026-10-01/, '应显示上次整理日期');
+    assert.match(body, /到期日：2026-10-08/, '应显示下次到期日');
+    assert.match(body, /合并 2 簇/, '应显示上次合并结果');
+  } finally {
+    delete settingsValue.autoDreamDays;
+    delete settingsValue.autoDreamPortrait;
+  }
+});
+
 await test('维护页：Dream 画像不可用时跳过，真实失败显示明细', async () => {
   const dir = fs.mkdtempSync(path.join(tmp, 'client-dream-skip-'));
   const dreamStore = createMemoryStore({ dir, mirror: false });
@@ -1454,7 +1480,7 @@ await test('维护页：Dream 画像不可用时跳过，真实失败显示明�
   }
 });
 
-await test('维护页：Dream 按时序归档旧结论，剩余矛盾可手动处理', async () => {
+await test('维护页：Dream 只报告矛盾，确认后才按时序归档', async () => {
   const dir = fs.mkdtempSync(path.join(tmp, 'client-time-order-'));
   const s = createMemoryStore({ dir, mirror: false });
   const ws = path.join(tmp, 'client-time-order-ws');
@@ -1482,12 +1508,19 @@ await test('维护页：Dream 按时序归档旧结论，剩余矛盾可手动�
     const body = text();
     assert.match(
       body,
-      new RegExp(escapeRe(makeT('zh')('dreamContradictionsResolved').replace('{n}', '1'))),
-      'Dream 应报告按时序归档数量',
+      new RegExp(escapeRe(makeT('zh')('dreamContradictionsPending').replace('{n}', '1'))),
+      'Dream 应把词法矛盾列为待确认',
     );
-    assert.match(body, new RegExp(escapeRe(oldSafe.title)), '应显示被归档的旧结论');
-    assert.match(body, new RegExp(escapeRe(newSafe.title)), '应显示保留的新结论');
-    assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, true);
+    assert.match(body, new RegExp(escapeRe(oldSafe.title)), '应显示旧结论');
+    assert.match(body, new RegExp(escapeRe(newSafe.title)), '应显示新结论');
+    assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, false, 'Dream 不应自动归档');
+    assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false);
+
+    const timeOrder = mini.findByText(view, makeT('zh')('healthTimeOrder'), 'button');
+    assert.ok(timeOrder, '待确认矛盾应提供按时序归档按钮');
+    mini.click(timeOrder);
+    await settle(16);
+    assert.equal(s.get(oldSafe.id, { workspace: ws }).archived, true, '确认后才归档旧条');
     assert.equal(s.get(newSafe.id, { workspace: ws }).archived, false);
 
     const oldTwo = add('数据库只读。', '数据库只读。', 'agent', '2026-01-01T00:00:00.000Z', ['db-time-ui']);
@@ -1496,9 +1529,9 @@ await test('维护页：Dream 按时序归档旧结论，剩余矛盾可手动�
     await settle(10);
     await clickTab('tabMaintain');
     await settle(10);
-    const timeOrder = mini.findByText(view, makeT('zh')('healthTimeOrder'), 'button');
-    assert.ok(timeOrder, '待确认矛盾应提供按时序归档按钮');
-    mini.click(timeOrder);
+    const timeOrderTwo = mini.findByText(view, makeT('zh')('healthTimeOrder'), 'button');
+    assert.ok(timeOrderTwo, '第二对应仍提供按时序归档按钮');
+    mini.click(timeOrderTwo);
     await settle(16);
     assert.equal(s.get(oldTwo.id, { workspace: ws }).archived, true);
     assert.equal(s.get(newTwo.id, { workspace: ws }).archived, false);

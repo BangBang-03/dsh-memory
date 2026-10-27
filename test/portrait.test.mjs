@@ -271,6 +271,10 @@ test('rewrite: REWRITE_SYSTEM 存在且要求 JSON 输出', () => {
   assert.match(REWRITE_SYSTEM, /Never invent facts/);
 });
 
+test('rewrite: REWRITE_SYSTEM 点名「字符串里的换行写成 \\n」（最常见的翻车形态）', () => {
+  assert.match(REWRITE_SYSTEM, /backslash \+ n/);
+});
+
 test('rewrite: buildRewriteInput 含四段 key 与旧画像', () => {
   const input = buildRewriteInput({
     scope: 'workspace',
@@ -318,6 +322,49 @@ test('rewrite: parse 按 scope 归一（全局版段标题为「个人背景」�
   const parsed = parseRewriteResponse('{"sections":[{"key":"preference","text":"P"}]}', { scope: 'global' });
   assert.equal(parsed.ok, true);
   assert.equal(parsed.sections.find((s) => s.key === 'preference').title, '个人背景');
+});
+
+test('rewrite: parse 修掉字符串里的裸换行与尾逗号（无损，degraded=repaired）', () => {
+  /*
+   * 画像正文是 markdown 列表，模型常把换行直接敲进 JSON 字符串里——
+   * 这是真实最常见的翻车形态，修复必须无损。
+   */
+  const raw = '{"sections":[{"key":"background","text":"- 第一行\n- 第二行"},{"key":"focus","text":"- 关注"}],}';
+  const parsed = parseRewriteResponse(raw, { scope: 'workspace' });
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.degraded, 'repaired');
+  assert.equal(parsed.sections.find((s) => s.key === 'background').text, '- 第一行\n- 第二行');
+  assert.equal(parsed.sections.find((s) => s.key === 'focus').text, '- 关注');
+});
+
+test('rewrite: parse 认得出被截断的输出，并保住已写出的部分（有损，degraded=truncated）', () => {
+  const raw = '{"sections":[{"key":"background","text":"- 已经写好的背景\\n- 还差一半';
+  const parsed = parseRewriteResponse(raw, { scope: 'workspace' });
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.degraded, 'truncated');
+  assert.match(parsed.sections.find((s) => s.key === 'background').text, /已经写好的背景/);
+});
+
+test('rewrite: parse 在 JSON 彻底坏掉时按段抢救（有损，degraded=salvaged）', () => {
+  const raw = '{"sections":[{"key":"background","text":"他说"你好"就走了"}]}';
+  const parsed = parseRewriteResponse(raw, { scope: 'workspace' });
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.degraded, 'salvaged');
+  assert.equal(parsed.sections.find((s) => s.key === 'background').text, '他说"你好"就走了');
+});
+
+test('rewrite: parse 干净输出时 degraded=none（调用方据此判定可直写）', () => {
+  const parsed = parseRewriteResponse('{"sections":[{"key":"background","text":"A"}]}');
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.degraded, 'none');
+});
+
+test('rewrite: parse 真没 JSON 时仍然 no_json（容错不许把散文编成画像）', () => {
+  assert.deepEqual(parseRewriteResponse('抱歉，我无法完成这个请求。'), { ok: false, error: 'no_json' });
+});
+
+test('rewrite: parse 散文里带个花括号不算截断（别把「没给 JSON」误报成 truncated）', () => {
+  assert.deepEqual(parseRewriteResponse('这是 { 画像 的说明，不是 JSON。'), { ok: false, error: 'no_json' });
 });
 
 /* ---------------- 画像 2.0：证据链 ---------------- */
