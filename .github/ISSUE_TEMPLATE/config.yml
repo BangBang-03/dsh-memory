@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安装与使用文档
+    url: https://github.com/BangBang-03/dsh-memory#readme
+    about: 先看 README 的安装、配置与「它怎么工作」
+  - name: 完整规格存档
+    url: https://github.com/BangBang-03/dsh-memory/blob/main/docs/REFERENCE.md
+    about: 页面细节、导入格式、测试明细与边界

@@ -5,6 +5,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | `REFERENCE.md` | v0.6.6 完整规格存档：旧版页面细节、导入格式、测试明细、边界与对标 |
+| `launch-copy-2026-10-28.md` | 发布素材：安全审计 / prompt cache / 治理三个角度与渠道草稿 |
 | `briefing-cache-safety.md` | 简报为什么必须字节稳定：会话级冻结、确定性排序与缓存命中率的代价 |
 | `retrieval-eval-2026-10-20.md` | 检索方案与 60 条评测的基线数字 |
 | `personal-memory-parity.md` | 与 WorkBuddy 个人记忆的能力差距 |

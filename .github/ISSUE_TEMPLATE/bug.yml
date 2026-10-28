@@ -1,0 +1,68 @@
+name: Bug report
+description: 安装、面板、注入、提炼或整理出问题时用这个
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先脱敏：不要贴 token、密钥、完整记忆正文。能复现的最小步骤最有用。
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH 版本
+      placeholder: 例如 0.2.1-rc.2
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - npm / dsh plugin add
+        - Release tarball / install.ps1
+        - 源码 clone + install.ps1
+        - 其它
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: 例如 Windows 11 / macOS 15
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: 1. 打开设置 → 记忆\n2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图（已脱敏）
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 已尝试重启 DSH / 硬刷新面板
+          required: false
+        - label: 已确认不是同名插件（本插件是 BangBang-03/dsh-memory）
+          required: false

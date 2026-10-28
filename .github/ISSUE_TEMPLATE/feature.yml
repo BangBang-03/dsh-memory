@@ -1,0 +1,47 @@
+name: Feature request
+description: 想要新的记忆行为、面板能力或集成
+title: "[feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题
+      description: 先描述场景，不要直接跳到实现
+      placeholder: 每次开新会话都要重新解释...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望的方案
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+    validations:
+      required: false
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影响范围
+      options:
+        - 记忆模型 / 存储
+        - 简报 / 召回 / 注入
+        - 提炼 / Dream / 画像
+        - 设置面板
+        - 安装 / 发布
+        - 文档
+        - 不确定
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: 约束
+      options:
+        - label: 方案可以保持零运行时依赖（P7）
+          required: false
+        - label: 不破坏简报字节稳定（C4）
+          required: false
