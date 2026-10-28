@@ -10,7 +10,7 @@
 
 ![Memory Portrait：一轮对话里的记忆回路](https://raw.githubusercontent.com/BangBang-03/dsh-memory-portrait/main/docs/assets/hero.png)
 
-**中文** ｜ [English](#english)
+**中文** ｜ [English](#english) ｜ [项目主页](https://bangbang-03.github.io/dsh-memory-portrait/)
 
 > 仓库名已改为 `dsh-memory-portrait`；npm 包名仍是 `@bangbang-03/dsh-memory`，安装命令不变。
 
@@ -264,6 +264,7 @@ npm test   # 14 个套件 / 581 项断言
 | --- | --- |
 | 完整规格（旧版 README 存档） | [docs/REFERENCE.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/REFERENCE.md) |
 | 版本变更日志 | [CHANGELOG.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/CHANGELOG.md) |
+| 项目主页（安装 / 看点 / 链接） | [bangbang-03.github.io/dsh-memory-portrait](https://bangbang-03.github.io/dsh-memory-portrait/) |
 | 检索方案与基线 | [docs/retrieval-eval-2026-10-20.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/retrieval-eval-2026-10-20.md) |
 | 简报为什么必须字节稳定 | [docs/briefing-cache-safety.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/briefing-cache-safety.md) |
 | 与 WorkBuddy 个人记忆的差距 | [docs/personal-memory-parity.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/personal-memory-parity.md) |

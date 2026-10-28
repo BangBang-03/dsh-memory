@@ -6,7 +6,7 @@
 
 ### Added
 
-- 暂无。
+- 新增 GitHub Pages 落地页：安装命令、画像看点、证据 / 版本 / 审计说明与 GitHub / npm / Discussions 入口。
 
 ### Changed
 

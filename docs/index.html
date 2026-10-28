@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Memory Portrait · DSH 的记忆画像</title>
+	<meta name="description" content="Memory Portrait 是 DeepSeek Harness 的工作区记忆画像插件：有证据、有版本、能解释变化；红线、审批队列、版本链、注入审计；零依赖、不出站。">
+	<meta property="og:title" content="Memory Portrait · DSH 的记忆画像">
+	<meta property="og:description" content="不是记住更多，而是让你看见它怎么理解你。">
+	<meta property="og:image" content="https://raw.githubusercontent.com/BangBang-03/dsh-memory-portrait/main/docs/assets/hero.png">
+	<meta property="og:type" content="website">
+	<link rel="icon" href="https://raw.githubusercontent.com/BangBang-03/dsh-memory-portrait/main/icon.svg">
+	<link rel="stylesheet" href="landing.css">
+</head>
+<body>
+	<header class="nav wrap">
+		<a class="brand" href="./">Memory Portrait<span>记忆画像</span></a>
+		<nav class="nav-links" aria-label="主导航">
+			<a href="https://github.com/BangBang-03/dsh-memory-portrait">GitHub</a>
+			<a href="https://github.com/BangBang-03/dsh-memory-portrait/releases/latest">Releases</a>
+			<a href="https://www.npmjs.com/package/@bangbang-03/dsh-memory">npm</a>
+			<a href="https://github.com/BangBang-03/dsh-memory-portrait/discussions">Discussions</a>
+		</nav>
+	</header>
+
+	<main>
+		<section class="hero wrap">
+			<div class="hero-copy">
+				<p class="eyebrow">DEEPSEEK HARNESS · WORKSPACE MEMORY</p>
+				<h1>Memory Portrait<br><span>DSH 的记忆画像</span></h1>
+				<p class="lead">不是记住更多，而是让你看见它怎么理解你。</p>
+				<p class="sub">会话开始注入索引简报，轮末本地召回，可选自动提炼。画像的每段都有证据、版本和 diff；写错了有红线、审批、版本链和注入审计。</p>
+
+				<div class="install" id="install">
+					<div class="install-head"><span>安装</span><button id="copy" type="button">复制命令</button></div>
+					<code id="cmd">dsh plugin --profile web add @bangbang-03/dsh-memory</code>
+					<p class="install-note">DSH ≥ 0.2.0-rc.2 · web / 桌面 · npm 包名保持不变</p>
+				</div>
+
+				<div class="actions">
+					<a class="btn primary" href="https://github.com/BangBang-03/dsh-memory-portrait">查看源码</a>
+					<a class="btn" href="https://github.com/BangBang-03/dsh-memory-portrait/releases/latest">下载 Release</a>
+				</div>
+				<p class="stats"><strong>581</strong> tests · <strong>0</strong> dependencies · <strong>MIT</strong> · v0.6.7</p>
+			</div>
+
+			<figure class="hero-media">
+				<img src="assets/hero.png" alt="Memory Portrait：一轮对话里的记忆回路">
+			</figure>
+		</section>
+
+		<section class="features wrap" id="why">
+			<div class="section-head">
+				<p class="eyebrow">WHY A PORTRAIT</p>
+				<h2>不是又一个自动记忆</h2>
+				<p>Memory Portrait 把「它现在怎么理解你」放在首页：每段判断从哪来、改了什么、为什么变。</p>
+			</div>
+			<div class="grid">
+				<article class="card">
+					<span class="num">01</span>
+					<h3>画像有证据</h3>
+					<p>每段挂来源记忆或当天日志；源被删、被归档、被改写时，沿派生链标脏。</p>
+				</article>
+				<article class="card">
+					<span class="num">02</span>
+					<h3>有版本，可回滚</h3>
+					<p>画像是版本化对象；改了什么可 diff，推翻不删除，旧版一直留着。</p>
+				</article>
+				<article class="card">
+					<span class="num">03</span>
+					<h3>模型改不掉红线</h3>
+					<p>绝对禁令逐字置顶；删除或改稿只能在面板确认；自动提炼可先进审批队列。</p>
+				</article>
+				<article class="card">
+					<span class="num">04</span>
+					<h3>每次注入可审计</h3>
+					<p>正文 hash、命中的记忆 id、被预算挤掉的条目都留档；不是黑盒。</p>
+				</article>
+				<article class="card">
+					<span class="num">05</span>
+					<h3>省 token，不破缓存</h3>
+					<p>索引简报一行一条；会话级冻结、字节稳定，不因记忆更新打掉 prompt 前缀缓存。</p>
+				</article>
+				<article class="card">
+					<span class="num">06</span>
+					<h3>零依赖，不出站</h3>
+					<p><code>dependencies</code> 为空；不 shell、不 env、不启子进程、不发网络请求。</p>
+				</article>
+			</div>
+		</section>
+
+		<section class="split wrap">
+			<div>
+				<p class="eyebrow">WHAT IT DOES</p>
+				<h2>五条记忆通路，一个画像</h2>
+				<p>会话简报、<code>memory</code> 工具、轮末召回、路径 JIT、自动提炼；Dream 负责合并与报告矛盾，画像负责让你看见变化。</p>
+			</div>
+			<ul class="checks">
+				<li>索引简报：同样预算约装 3 倍条目</li>
+				<li>轮末召回：纯本地打分，0 模型开销</li>
+				<li>自动提炼：可 draft 进审批队列</li>
+				<li>路径 JIT：触达文件时召回相关记忆</li>
+				<li>画像：证据、版本、diff、派生链</li>
+			</ul>
+		</section>
+
+		<section class="cta wrap">
+			<div>
+				<p class="eyebrow">OPEN SOURCE · MIT</p>
+				<h2>如果你的 Agent 也会记错，<br>至少让它解释得清。</h2>
+				<p>GitHub 上点个 ⭐，或者直接开一个 issue 说说你的工作流。</p>
+			</div>
+			<div class="actions">
+				<a class="btn primary" href="https://github.com/BangBang-03/dsh-memory-portrait">GitHub</a>
+				<a class="btn" href="https://github.com/BangBang-03/dsh-memory-portrait/discussions">Discussions</a>
+				<a class="btn" href="https://www.npmjs.com/package/@bangbang-03/dsh-memory">npm</a>
+			</div>
+		</section>
+	</main>
+
+	<footer class="wrap footer">
+		<span>Memory Portrait · DSH 的记忆画像</span>
+		<span><a href="https://github.com/BangBang-03/dsh-memory-portrait/blob/main/LICENSE">MIT</a> · <a href="https://github.com/BangBang-03/dsh-memory-portrait">BangBang-03/dsh-memory-portrait</a></span>
+	</footer>
+
+	<script>
+		const button = document.getElementById("copy");
+		const command = document.getElementById("cmd");
+		button?.addEventListener("click", async () => {
+			try {
+				await navigator.clipboard.writeText(command.textContent.trim());
+				button.textContent = "已复制";
+				setTimeout(() => (button.textContent = "复制命令"), 1600);
+			} catch {
+				button.textContent = "请手动复制";
+			}
+		});
+	</script>
+</body>
+</html>
