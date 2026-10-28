@@ -120,7 +120,6 @@ npm 包名仍是 `@bangbang-03/dsh-memory`，安装命令不变。
 | 版本变更日志 | `CHANGELOG.md` |
 | 发布素材与渠道草稿 | `docs/launch-copy-2026-10-28.md` |
 | 分支 / 发版 / 推送通道 | `skills/release/SKILL.md`、`tools/README.md` |
-| 双仓（dsh-memory / dsh-client-ui-quote）发布流程与历史事故复盘 | 工作区根 `PLUGIN-WORKFLOW.md` |
 | 检索方案与基线数字 | `docs/retrieval-eval-2026-10-20.md` |
 | 简报为什么必须字节稳定 | `docs/briefing-cache-safety.md` |
 | 与 WorkBuddy 个人记忆的差距 | `docs/personal-memory-parity.md` |

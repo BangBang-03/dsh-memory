@@ -41,9 +41,9 @@ console.log('\ndsh-memory markdown tests\n');
 
 const WORKBUDDY_NOTE = `# dsh 工作区 — 项目长期笔记
 
-## dsh-client-ui-quote（用户的 DSH 客户端插件）
+## 示例客户端插件（用户的 DSH 客户端插件）
 
-- 仓库在 \`C:\\Users\\15812\\Desktop\\dsh\\dsh-client-ui-quote\`，MIT。
+- 仓库在 \`C:\\Users\\15812\\Desktop\\example\\client-plugin\`，MIT。
 - 无构建步骤，\`lib/client.js\` 是 vendor-CJS 工厂。
 
 ## 环境坑
@@ -129,8 +129,8 @@ test('parseMemoryText：每个二级标题一条记录', () => {
   const { format, records } = parseMemoryText(WORKBUDDY_NOTE);
   assert.equal(format, 'workbuddy');
   assert.equal(records.length, 2);
-  assert.equal(records[0].title, 'dsh-client-ui-quote（用户的 DSH 客户端插件）');
-  assert.match(records[0].content, /dsh-client-ui-quote/);
+  assert.equal(records[0].title, '示例客户端插件（用户的 DSH 客户端插件）');
+  assert.match(records[0].content, /client-plugin/);
   assert.match(records[1].content, /Test-Path/);
 });
 
@@ -407,7 +407,7 @@ test('scanMemorySources：列出文件、格式与条数预览', () => {
   const note = ws.files.find((f) => f.name === 'MEMORY.md');
   assert.equal(note.format, 'workbuddy');
   assert.equal(note.records, 2);
-  assert.equal(note.preview[0], 'dsh-client-ui-quote（用户的 DSH 客户端插件）');
+  assert.equal(note.preview[0], '示例客户端插件（用户的 DSH 客户端插件）');
   const daily = ws.files.find((f) => f.name === '2026-10-10.md');
   assert.equal(daily.format, 'daily');
   assert.equal(daily.records, 2);

@@ -324,8 +324,7 @@ pwsh -File install.ps1 -FromRelease    # 装刚发出去的实验版
 
 `tools/sync.mjs` 是反方向的 `git pull`：按 GitHub API 把远端所有分支与标签逐个对象重建到本地
 （git 通道不通或换机器时用）。只在本地仓库损坏时用——它用远端内容覆盖工作区已跟踪的文件。
-两条线的完整流程（含「main 只做快进」的理由与推送通道的分叉事故）见工作区根目录
-`PLUGIN-WORKFLOW.md`。
+本仓库当前发版流程见 `skills/release/SKILL.md`；上面「main 只做快进」是 lab/main 双线时代的历史。
 
 ## npm 包与远程更新
 
