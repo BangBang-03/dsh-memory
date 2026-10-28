@@ -121,7 +121,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 与 WorkBuddy 个人记忆的差距 | `docs/personal-memory-parity.md` |
 | 市场同类扫描、插件自查与竞品 | `docs/market-scan-2026-10.md`、`docs/dsh-memory-landscape-2026-10.md` |
 | 头部这一个月的新机制、可抄清单与优先级 | `docs/competitive-delta-2026-10-20.md` |
-| 市场实时榜与**分发堵点复盘**（2026-10-27 快照；npmjs 0.6.5 已发，0.6.6 待发） | `docs/market-top10-2026-10-27.md` |
+| 市场实时榜与**分发堵点复盘**（2026-10-27 快照；npmjs 0.6.6 已发） | `docs/market-top10-2026-10-27.md` |
 
 ### 2.4 项目级 skills
 
