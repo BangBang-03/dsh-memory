@@ -263,6 +263,12 @@ npm test   # 14 个套件 / 581 项断言
 | 市场扫描与竞品 | [docs/market-scan-2026-10.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/market-scan-2026-10.md) |
 | 发版流程 | [skills/release/SKILL.md](https://github.com/BangBang-03/dsh-memory/blob/main/skills/release/SKILL.md) |
 
+## 参与
+
+- 安装 / 使用问题：用 [issue 模板](https://github.com/BangBang-03/dsh-memory/issues/new/choose)
+- 想法与用法：[Discussions](https://github.com/BangBang-03/dsh-memory/discussions)
+- 贡献代码：[CONTRIBUTING.md](https://github.com/BangBang-03/dsh-memory/blob/main/CONTRIBUTING.md)
+
 ## English
 
 `dsh-memory` is a long-term workspace memory plugin for **DeepSeek Harness**. It injects a compact index at session start, fetches bodies on demand, recalls relevant memories at turn end with a purely local search, and can distill conversations into structured memories that wait in an approval queue.

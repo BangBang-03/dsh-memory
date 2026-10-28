@@ -113,6 +113,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | --- | --- |
 | 安装、快速开始、配置表、HTTP 契约 | `README.md` |
 | 完整规格、历史章节、导入格式、测试明细、边界 | `docs/REFERENCE.md` |
+| 发布素材与渠道草稿 | `docs/launch-copy-2026-10-28.md` |
 | 分支 / 发版 / 推送通道 | `skills/release/SKILL.md`、`tools/README.md` |
 | 双仓发布流程与历史事故复盘 | 工作区根 `PLUGIN-WORKFLOW.md` |
 | 检索方案与基线数字 | `docs/retrieval-eval-2026-10-20.md` |
