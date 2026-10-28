@@ -1,27 +1,31 @@
-# dsh-memory
+# Memory Portrait · 记忆画像
 
-[![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
+[![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory-portrait?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory-portrait/releases/latest)
 [![npm](https://img.shields.io/npm/v/@bangbang-03/dsh-memory?color=4d6bfe&label=npm)](https://www.npmjs.com/package/@bangbang-03/dsh-memory)
-[![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-581%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![License](https://img.shields.io/github/license/BangBang-03/dsh-memory-portrait?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/LICENSE)
+[![Tests](https://img.shields.io/badge/tests-581%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
 
-**DSH 的工作区长期记忆：模型记得住项目，但改不掉你的红线。**<br>
-**Long-term memory for DeepSeek Harness, with a paper trail.**
+**DSH 的记忆画像：不是记住更多，而是让你看见它怎么理解你。**<br>
+**Long-term memory for DeepSeek Harness, with a portrait you can inspect.**
 
-![dsh-memory：一轮对话里的记忆回路](https://raw.githubusercontent.com/BangBang-03/dsh-memory/main/docs/assets/hero.png)
+![Memory Portrait：一轮对话里的记忆回路](https://raw.githubusercontent.com/BangBang-03/dsh-memory-portrait/main/docs/assets/hero.png)
 
 **中文** ｜ [English](#english)
 
-`dsh-memory` 把记忆按工作区落库：会话开始时注入一份**索引简报**（一行一条，正文按需用 `memory` 工具取，省 token），
+> 仓库名已改为 `dsh-memory-portrait`；npm 包名仍是 `@bangbang-03/dsh-memory`，安装命令不变。
+
+**Memory Portrait** 把记忆按工作区落库：会话开始时注入一份**索引简报**（一行一条，正文按需用 `memory` 工具取，省 token），
 轮次结束后用本地检索把相关记忆**召回**到下一轮，可选地把对话**自动提炼**成结构化记忆。
+它把「画像」放在首页：模型现在怎么理解你、每段判断来自哪条记忆、这一版和上一版差在哪里——有证据、有版本、能解释变化。
 和「自动多记一点」的插件不同，它把重点放在**记错了怎么办**：红线、审批队列、版本链、注入审计、派生链，全部能在 **设置 → 记忆** 里看到。
 
+- **画像是主视图**：每段挂证据，改了什么可 diff，源失效沿派生链标脏。
 - **省 token**：索引模式同样预算多装约 3 倍条目；简报字节稳定，不破坏 prompt 前缀缓存。
 - **可控**：自动提炼可先进审批队列；红线逐字置顶，模型不能删改；改稿留历史，可回滚。
 - **可审计**：每次注入都记录正文 hash、命中的记忆 id、被预算挤掉的条目；画像与 `AGENTS.md` 有派生链。
 - **零依赖**：`dependencies` 为空，只要 fs + 回环 HTTP；不 shell、不 env、不启子进程、不出站、不加载动态代码。
 
-> **English** — Long-term workspace memory for DeepSeek Harness, with redlines, an approval queue, a version chain, and an injection audit. Zero dependencies; no shell, env, or outbound requests. [Jump to English](#english).
+> **English** — Long-term workspace memory for DeepSeek Harness, with an inspectable portrait: every section carries evidence, versions, and diffs. Redlines, an approval queue, a version chain, and an injection audit are included. Zero dependencies; no shell, env, or outbound requests. [Jump to English](#english).
 
 ## 安装
 
@@ -30,7 +34,7 @@ DSH ≥ 0.2.0-rc.2，web / 桌面。
 ### 一条命令（推荐，web profile）
 
 ```powershell
-dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz"
+dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory-portrait/releases/latest/download/dsh-memory-latest.tgz"
 ```
 
 `/latest/` 永远取最新稳定版，不需要 clone，也不需要 npm。
@@ -45,7 +49,7 @@ dsh plugin --profile web add @bangbang-03/dsh-memory
 
 ### 桌面端
 
-把 [`install.ps1`](https://github.com/BangBang-03/dsh-memory/blob/main/install.ps1) 下载到任意目录，然后：
+把 [`install.ps1`](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/install.ps1) 下载到任意目录，然后：
 
 ```powershell
 pwsh -File install.ps1 -FromRelease -Channel stable
@@ -56,8 +60,8 @@ pwsh -File install.ps1 -FromRelease -Channel stable
 ### 源码
 
 ```powershell
-git clone https://github.com/BangBang-03/dsh-memory.git
-cd dsh-memory
+git clone https://github.com/BangBang-03/dsh-memory-portrait.git
+cd dsh-memory-portrait
 pwsh -File install.ps1 -DryRun     # 先看一遍要改什么
 pwsh -File install.ps1             # 真装
 # 重启 DSH 桌面端
@@ -86,7 +90,9 @@ pwsh -File install.ps1             # 真装
 
 设置 → 记忆 → **从本机既有记忆导入**：扫描 WorkBuddy / Qoder / Claude Code / Codex / Windsurf 的既有记忆文件，只读扫描、按来源打标签；也可以直接粘 `/export` 的 JSON 或 Markdown。导入有新增时会后台触发一次画像重写（`feedPortrait: false` 可关）。
 
-## 记忆的账本
+## 画像与账本
+
+画像不是一句总结：每段有证据、版本和 diff；下面的机制保证它不会变成模型随手写的小抄。
 
 | 机制 | 作用 |
 | --- | --- |
@@ -98,9 +104,9 @@ pwsh -File install.ps1             # 真装
 | 整库快照 | 每天首次写入 + 每次 Dream 前备份，轮转 7 份；恢复 = 手工拷回库目录 |
 | 写入安全 | 密钥脱敏 + 注入模式 taint；非 user 来源 taint 隔离成草稿 |
 
-## 为什么不是「又一个自动记忆」
+## 为什么是「画像」
 
-如果你要的是「模型自动多记一点」，很多插件都能做。这个项目把重点放在**记错了怎么办**：红线、审批、版本链、注入审计、派生链。它不追求记住一切，而是让每一条被记住的东西有来源、有版本、能解释、能撤回。
+如果你要的是「模型自动多记一点」，很多插件都能做。Memory Portrait 把重点放在**它现在怎么理解你**：画像的每段有证据、有版本、能解释变化；写错了有红线、审批、版本链、注入审计。它不追求记住一切，而是让每一条被记住的东西有来源、有版本、能解释、能撤回。
 
 几个明确的取舍：
 
@@ -241,45 +247,45 @@ pwsh -File install.ps1             # 真装
 npm test   # 14 个套件 / 581 项断言
 ```
 
-- 检索：54 条记忆 × 60 条查询硬评测，Recall@5 1.000、MRR@10 0.930（自测口径，见 [评测说明](https://github.com/BangBang-03/dsh-memory/blob/main/docs/retrieval-eval-2026-10-20.md)）。
+- 检索：54 条记忆 × 60 条查询硬评测，Recall@5 1.000、MRR@10 0.930（自测口径，见 [评测说明](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/retrieval-eval-2026-10-20.md)）。
 - 安全：100 条密钥样本全部脱敏；20 条注入样本全部命中；20 条正常文本零误报。
 - 简报稳定性：会话级冻结、确定性排序、轮末召回尾部注入去重。
 - 客户端：把设置页真的渲染出来，接到真实 `store` + `api` 上驱动交互。
 
 ## 维护与发布
 
-- 分支：`main` 是唯一长期分支；推 `main` 只跑测试，正式版用 `v*` 标签发布；完整流程与验收见 [`skills/release/SKILL.md`](https://github.com/BangBang-03/dsh-memory/blob/main/skills/release/SKILL.md)。
+- 分支：`main` 是唯一长期分支；推 `main` 只跑测试，正式版用 `v*` 标签发布；完整流程与验收见 [`skills/release/SKILL.md`](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/skills/release/SKILL.md)。
 - 发版：`node tools/release.mjs`，然后 `node tools/release-watch.mjs`。
-- 完整规格、历史章节、导入格式、测试明细与边界讨论：[`docs/REFERENCE.md`](https://github.com/BangBang-03/dsh-memory/blob/main/docs/REFERENCE.md)。
+- 完整规格、历史章节、导入格式、测试明细与边界讨论：[`docs/REFERENCE.md`](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/REFERENCE.md)。
 
 ## 文档
 
 | 想了解 | 读 |
 | --- | --- |
-| 完整规格（旧版 README 存档） | [docs/REFERENCE.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/REFERENCE.md) |
-| 检索方案与基线 | [docs/retrieval-eval-2026-10-20.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/retrieval-eval-2026-10-20.md) |
-| 简报为什么必须字节稳定 | [docs/briefing-cache-safety.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/briefing-cache-safety.md) |
-| 与 WorkBuddy 个人记忆的差距 | [docs/personal-memory-parity.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/personal-memory-parity.md) |
-| 市场扫描与竞品 | [docs/market-scan-2026-10.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/market-scan-2026-10.md) |
-| 发版流程 | [skills/release/SKILL.md](https://github.com/BangBang-03/dsh-memory/blob/main/skills/release/SKILL.md) |
+| 完整规格（旧版 README 存档） | [docs/REFERENCE.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/REFERENCE.md) |
+| 检索方案与基线 | [docs/retrieval-eval-2026-10-20.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/retrieval-eval-2026-10-20.md) |
+| 简报为什么必须字节稳定 | [docs/briefing-cache-safety.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/briefing-cache-safety.md) |
+| 与 WorkBuddy 个人记忆的差距 | [docs/personal-memory-parity.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/personal-memory-parity.md) |
+| 市场扫描与竞品 | [docs/market-scan-2026-10.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/market-scan-2026-10.md) |
+| 发版流程 | [skills/release/SKILL.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/skills/release/SKILL.md) |
 
 ## 参与
 
-- 安装 / 使用问题：用 [issue 模板](https://github.com/BangBang-03/dsh-memory/issues/new/choose)
-- 想法与用法：[Discussions](https://github.com/BangBang-03/dsh-memory/discussions)
-- 贡献代码：[CONTRIBUTING.md](https://github.com/BangBang-03/dsh-memory/blob/main/CONTRIBUTING.md)
+- 安装 / 使用问题：用 [issue 模板](https://github.com/BangBang-03/dsh-memory-portrait/issues/new/choose)
+- 想法与用法：[Discussions](https://github.com/BangBang-03/dsh-memory-portrait/discussions)
+- 贡献代码：[CONTRIBUTING.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/CONTRIBUTING.md)
 
 ## English
 
-`dsh-memory` is a long-term workspace memory plugin for **DeepSeek Harness**. It injects a compact index at session start, fetches bodies on demand, recalls relevant memories at turn end with a purely local search, and can distill conversations into structured memories that wait in an approval queue.
+`Memory Portrait` is a long-term workspace memory plugin for **DeepSeek Harness** (npm package: `@bangbang-03/dsh-memory`). It injects a compact index at session start, fetches bodies on demand, recalls relevant memories at turn end with a purely local search, and can distill conversations into structured memories that wait in an approval queue.
 
-What makes it different: memory is treated as a **governed artifact**. Redlines are injected verbatim and cannot be silently edited; every rewrite has a version chain; every injection is audited; portraits and `AGENTS.md` carry derivation links. `dependencies` is empty — no shell, no env, no outbound requests.
+What makes it different: the portrait is the main view. Every section carries evidence, versions, and diffs, so you can see how the agent understands the project and why that changed. Memory is treated as a **governed artifact**: redlines are injected verbatim and cannot be silently edited; every rewrite has a version chain; every injection is audited. `dependencies` is empty — no shell, no env, no outbound requests.
 
 ```powershell
 dsh plugin --profile web add @bangbang-03/dsh-memory
 ```
 
-If it saves you from re-explaining your project, a ⭐ helps others find it. Bugs and install issues: [open an issue](https://github.com/BangBang-03/dsh-memory/issues).
+If it saves you from re-explaining your project, a ⭐ helps others find it. Bugs and install issues: [open an issue](https://github.com/BangBang-03/dsh-memory-portrait/issues).
 
 ## License
 

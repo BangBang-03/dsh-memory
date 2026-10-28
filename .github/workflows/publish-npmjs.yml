@@ -10,7 +10,7 @@ name: Publish to npmjs
 # 一次性准备（仓库管理员）：
 #   Settings → Secrets and variables → Actions → New repository secret
 #   Name: NPM_TOKEN   Secret: npmjs.com 的 Automation token（Read and write）
-#   或：gh secret set NPM_TOKEN --repo BangBang-03/dsh-memory
+#   或：gh secret set NPM_TOKEN --repo BangBang-03/dsh-memory-portrait
 #
 # 没配 NPM_TOKEN 时本工作流会**明确警告并跳过发布**（不会红），
 # 测试与版本检查照跑，配好之后下一次打 v* 标签即自动发布。

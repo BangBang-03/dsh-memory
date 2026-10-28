@@ -7,7 +7,7 @@
  */
 import { execFileSync } from "node:child_process";
 
-const repo = "BangBang-03/dsh-memory";
+const repo = "BangBang-03/dsh-memory-portrait";
 
 function resolveToken() {
 	if (process.env.GH_TOKEN) return process.env.GH_TOKEN.trim();

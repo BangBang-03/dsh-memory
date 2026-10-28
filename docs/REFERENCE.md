@@ -1,14 +1,17 @@
-# dsh-memory（完整规格存档）
+# Memory Portrait（dsh-memory 完整规格存档）
 
 > 这是 v0.6.6 的完整规格与历史章节存档。安装入口、配置表、HTTP 契约以根目录 [`README.md`](../README.md) 为准；
 > 这里保留旧版页面结构、设计说明、导入格式、测试明细与边界讨论，方便查细节。
 >
+> 2026-10-28 仓库更名为 `dsh-memory-portrait`（品牌 Memory Portrait / 记忆画像）；npm 包名仍为
+> `@bangbang-03/dsh-memory`，安装命令不变。文中旧仓库链接会由 GitHub 自动重定向。
+>
 > 2026-10-28 起仓库已改为单一 `main` + `v*` 标签发布；文中「lab / main 双线」与 `lab-latest`
 > 相关章节是历史，当前流程见 [`skills/release/SKILL.md`](../skills/release/SKILL.md)。
 
-[![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
-[![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-581%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory#测试)
+[![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory-portrait?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory-portrait/releases/latest)
+[![License](https://img.shields.io/github/license/BangBang-03/dsh-memory-portrait?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/LICENSE)
+[![Tests](https://img.shields.io/badge/tests-581%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -16,7 +19,7 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记
 提炼结果可以直接落库，也可以先进**待审队列**由你批准。全部记忆都能在 **设置 → 记忆** 里管理：
 记忆库（档案 / 列表）、时间线、健康体检、审批队列。
 
-**哪个 `dsh-memory` 是这个**：`BangBang-03/dsh-memory`（npm 名 `@bangbang-03/dsh-memory`）。市场目录里有十几个同名包，认作者与仓库。
+**哪个 `dsh-memory` 是这个**：`BangBang-03/dsh-memory-portrait`（npm 名 `@bangbang-03/dsh-memory`）。市场目录里有十几个同名包，认作者与仓库。
 
 **它要什么权限**：只用 `fs-read` / `fs-write`（读你自己的记忆库）+ 本机回环 HTTP（`/memory/api`，只监听回环地址）。
 **不要 shell、不要环境变量、不启子进程、不发出站请求、不加载动态代码**；`dependencies` 为空，`lib/*.js` 只 import
@@ -27,7 +30,7 @@ DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记
 三分钟装好（DSH ≥ 0.2.0-rc.2，web / 桌面）：
 
 ```powershell
-git clone https://github.com/BangBang-03/dsh-memory.git
+git clone https://github.com/BangBang-03/dsh-memory-portrait.git
 cd dsh-memory
 pwsh -File install.ps1 -DryRun     # 先看一遍要改什么
 pwsh -File install.ps1             # 真装
@@ -39,7 +42,7 @@ pwsh -File install.ps1             # 真装
 ```powershell
 pwsh -File install.ps1 -FromRelease -Channel stable   # 脚本自己下 tarball 并解包到 ~/.dsh/plugins/dsh-memory
 # 或显式给 URL（同一个资产）：
-pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz
+pwsh -File install.ps1 -FromUrl https://github.com/BangBang-03/dsh-memory-portrait/releases/latest/download/dsh-memory-latest.tgz
 ```
 
 > 市场目录里的 install 命令是收录当天（2026-10-17）写死的 `v0.5.1` tarball，**不会随发版更新**。
@@ -226,7 +229,7 @@ pwsh -File install.ps1             # 真装
 # 重启 DSH 桌面端
 ```
 
-不想 clone 也可以直接下 [Releases](https://github.com/BangBang-03/dsh-memory/releases/latest)
+不想 clone 也可以直接下 [Releases](https://github.com/BangBang-03/dsh-memory-portrait/releases/latest)
 里的 `Source code (zip)`，解压后同一个目录结构、同样跑 `install.ps1`。
 
 回滚：

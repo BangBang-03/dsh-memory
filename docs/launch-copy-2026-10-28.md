@@ -13,7 +13,7 @@
 安装口令（统一用 Release 资产，拿到最新稳定版）：
 
 ```powershell
-dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz"
+dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory-portrait/releases/latest/download/dsh-memory-latest.tgz"
 ```
 
 ## V2EX
@@ -31,7 +31,7 @@ dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory/releases
 > - 每次真正进 prompt 的内容都有正文 hash、命中的 id、被预算挤掉的条目；
 > - 画像 / AGENTS.md 有派生链，源记忆失效会沿链标脏。
 >
-> 零运行时依赖，不 shell、不 env、不启子进程、不出站；581 条测试。代码：https://github.com/BangBang-03/dsh-memory
+> 零运行时依赖，不 shell、不 env、不启子进程、不出站；581 条测试。代码：https://github.com/BangBang-03/dsh-memory-portrait
 >
 > 想听两类反馈：① 你更想要“自动多记”还是“先审后记”；② 面板里哪个信息你最常看。
 
@@ -41,7 +41,7 @@ dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory/releases
 >
 > 会话开始注入索引简报，轮末本地召回，自动提炼可以先进审批队列；红线逐字置顶，版本链可回滚，每次注入都有审计。
 >
-> 零依赖、不出站、581 条测试。https://github.com/BangBang-03/dsh-memory
+> 零依赖、不出站、581 条测试。https://github.com/BangBang-03/dsh-memory-portrait
 
 ## X / Twitter
 
@@ -59,7 +59,7 @@ I built dsh-memory — long-term workspace memory with redlines, an approval que
 Redlines are injected verbatim, edits keep history, every injection has a hash + ids, and portraits/AGENTS.md have derivation links.
 
 4/ Zero runtime dependencies. No shell, no env, no outbound requests. 581 tests.
-https://github.com/BangBang-03/dsh-memory
+https://github.com/BangBang-03/dsh-memory-portrait
 
 ## Reddit r/DeepSeek
 
@@ -77,7 +77,7 @@ Body:
 > - portraits and AGENTS.md carry derivation links
 >
 > Zero runtime dependencies; no shell, no env, no outbound requests. 581 tests.
-> Repo: https://github.com/BangBang-03/dsh-memory
+> Repo: https://github.com/BangBang-03/dsh-memory-portrait
 >
 > Happy to hear which tradeoff you'd pick: auto-capture by default, or review-first?
 

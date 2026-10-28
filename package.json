@@ -1,7 +1,7 @@
 {
   "name": "@bangbang-03/dsh-memory",
   "version": "0.6.6",
-  "description": "DSH 工作区长期记忆：索引简报省 token、轮末本地召回、红线 / 审批队列 / 版本链 / 注入审计；零依赖、不出站。",
+  "description": "DSH 工作区记忆画像：有证据、有版本、能解释变化；索引简报省 token、轮末本地召回、红线 / 审批队列 / 版本链 / 注入审计；零依赖、不出站。",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -16,6 +16,7 @@
     "memory-tool",
     "approval-queue",
     "portrait",
+    "memory-portrait",
     "agent-memory",
     "ai-agents",
     "coding-agent",
@@ -31,11 +32,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/BangBang-03/dsh-memory.git"
+    "url": "git+https://github.com/BangBang-03/dsh-memory-portrait.git"
   },
-  "homepage": "https://github.com/BangBang-03/dsh-memory#readme",
+  "homepage": "https://github.com/BangBang-03/dsh-memory-portrait#readme",
   "bugs": {
-    "url": "https://github.com/BangBang-03/dsh-memory/issues"
+    "url": "https://github.com/BangBang-03/dsh-memory-portrait/issues"
   },
   "type": "module",
   "main": "lib/index.js",

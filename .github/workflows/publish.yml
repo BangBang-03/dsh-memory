@@ -112,7 +112,7 @@ jobs:
           也可以直接用一条命令：
 
           ```powershell
-          dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz"
+          dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory-portrait/releases/latest/download/dsh-memory-latest.tgz"
           ```
           NOTES
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then

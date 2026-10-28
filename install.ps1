@@ -46,7 +46,7 @@
 
 .PARAMETER FromUrl
   直接下载 tarball 的 URL（不走 registry 协议）。公开仓库的 Release 资产不需要任何凭据：
-  https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz
+  https://github.com/BangBang-03/dsh-memory-portrait/releases/latest/download/dsh-memory-latest.tgz
 
 .PARAMETER FromRelease
   从 GitHub Release 装指定通道的最新版（公开资产，不需要任何凭据）。通道见 -Channel。
@@ -167,7 +167,7 @@ function Save-Tarball([string]$Url, [string]$OutFile, [hashtable]$Headers, [stri
   }
   if (-not $ReleaseTag -or -not $AssetName) { throw "下载失败：$Url" }
 
-  $apiBase = 'https://api.github.com/repos/BangBang-03/dsh-memory/releases'
+  $apiBase = 'https://api.github.com/repos/BangBang-03/dsh-memory-portrait/releases'
   $releaseUrl = if ($ReleaseTag -eq 'latest') { "$apiBase/latest" } else { "$apiBase/tags/$ReleaseTag" }
   Write-Step "改走 GitHub API：$releaseUrl"
   $apiHeaders = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'dsh-memory-install' }
@@ -221,7 +221,7 @@ if ($FromNpm -or $FromUrl -or $FromRelease) {
     $Channel = 'stable'
   }
   $releaseUrls = @{
-    stable = 'https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz'
+    stable = 'https://github.com/BangBang-03/dsh-memory-portrait/releases/latest/download/dsh-memory-latest.tgz'
   }
   $releaseTags = @{ stable = 'latest' }
   $releaseAssets = @{ stable = 'dsh-memory-latest.tgz' }

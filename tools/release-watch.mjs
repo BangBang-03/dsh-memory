@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repo = "BangBang-03/dsh-memory";
+const repo = "BangBang-03/dsh-memory-portrait";
 const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {

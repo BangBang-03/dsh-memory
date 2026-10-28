@@ -64,5 +64,5 @@ body:
       options:
         - label: 已尝试重启 DSH / 硬刷新面板
           required: false
-        - label: 已确认不是同名插件（本插件是 BangBang-03/dsh-memory）
+        - label: 已确认不是同名插件（本插件是 BangBang-03/dsh-memory-portrait）
           required: false

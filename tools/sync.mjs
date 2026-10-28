@@ -14,7 +14,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
-const repo = "BangBang-03/dsh-memory";
+const repo = "BangBang-03/dsh-memory-portrait";
 const dir = process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : process.cwd();
 const DRY = process.argv.includes("--dry");
 
