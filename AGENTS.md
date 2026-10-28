@@ -1,19 +1,19 @@
 # AGENTS.md
 
-DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。本文件只放两样东西：**改代码不能踩的红线**、
-**改什么该动哪个文件的路由表**。设计取舍、竞品对标、机制细节在 `docs/REFERENCE.md`（根 `README.md` 只留安装、
-快速开始与配置 / HTTP 契约），不要往这里抄。
+Memory Portrait（记忆画像）是 DSH 的工作区记忆插件（真包名 `@bangbang-03/dsh-memory`）。本文件只放两样东西：
+**改代码不能踩的红线**、**改什么该动哪个文件的路由表**。设计取舍、竞品对标、机制细节在 `docs/REFERENCE.md`；
+根 `README.md` 是对外入口（安装 / 看点 / 配置 / HTTP 契约），不要往这里抄。
 
 结构一句话：宿主半 `lib/index.js`（简报注入 / `memory` 工具 / `/memory/api` 路由 / 轮末召回）+
 客户端半 `lib/client.js`（设置面板「记忆」页）+ 其余 `lib/*.js` 纯 Node 逻辑层（不 import 任何 DSH 运行时，可脱离宿主单测）。
-项目级 skill 放在 `skills/`（只对本仓库生效，不安装到 Qoder 用户目录），路由见 2.4。
+项目级 skill 放在 `skills/`（只对本仓库生效，不装进全局 skill 目录），路由见 2.4。
 
 分支一句话：GitHub 默认分支是 **`main`**，也是唯一长期分支；正式版用 **`v*` 标签**发布。
 功能开发走短命分支或直接 `main`，合入前跑全量测试；`lab` 已删除，不再维护双线。
 推 `main` 只跑测试；`v*` 标签才触发发布。
 
-仓库地址：**`BangBang-03/dsh-memory-portrait`**（品牌 Memory Portrait / 记忆画像）；npm 包名仍是
-`@bangbang-03/dsh-memory`，安装命令不变。
+项目身份：品牌 **Memory Portrait / 记忆画像**；GitHub `BangBang-03/dsh-memory-portrait`；
+npm 包名仍是 `@bangbang-03/dsh-memory`，安装命令不变。
 
 ---
 
@@ -55,7 +55,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
 | **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 581 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
-| **P8** | 正式版只在 `main` 打 `v*` 标签，且 `package.json` 不许是 `-lab.N` 预发布号；打标签前 `main` 必须已推送并通过测试；不手改远端保护设置 | 标签挂在旧提交上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来。完整步骤与验收见 `skills/release/SKILL.md` |
+| **P8** | 正式版只在 `main` 打 `v*` 标签，且 `package.json` 不许是预发布号（`-lab.N` / `-rc.N` 等）；打标签前 `main` 必须已推送并通过测试；不手改远端保护设置 | 标签挂在旧提交上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来。完整步骤与验收见 `skills/release/SKILL.md` |
 
 ---
 
@@ -108,7 +108,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 红线冲突提示误报 / 漏报 | `redlineConflicts()` 复用 `detectContradictions()` 的疑似矛盾词法规则，是启发式；调阈值/否定词时同步 `store` 与 `api` 的红线测试 |
 | 首页「需要处理」数字与收件箱不一致 | `healthData` / `queueData` / `reviewData` 的拉取条件；收件箱只在 `attentionOpen` 时拉 queue / reviews |
 | 改完代码界面没变 | 宿主半（`lib/index.js` 等）改动要**重启 DSH**；纯客户端改动 `Ctrl+Shift+R` 硬刷新即可 |
-| 正式版没发出去 / Release 不是 Latest / 资产缺失 / npmjs 没更新 | 先跑 `node tools/release-watch.mjs` 看 CI 与 Release 结论；完整流程见 `skills/release/SKILL.md` |
+| 正式版没发出去 / Release 不是 Latest / 资产缺失 / npmjs 没更新 | 先跑 `node tools/release-watch.mjs` 看 CI 与 Release 结论；npmjs 步骤 skipped 时先看仓库是否配置了 `NPM_TOKEN`；完整流程见 `skills/release/SKILL.md` |
 | `main` 与最新 tag 不一致 | 正常：tag 之后可能还有未发版提交；发版前先 bump 版本并重新打 tag，不要移动旧 tag |
 
 ### 2.3 文档路由
@@ -120,7 +120,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 版本变更日志 | `CHANGELOG.md` |
 | 发布素材与渠道草稿 | `docs/launch-copy-2026-10-28.md` |
 | 分支 / 发版 / 推送通道 | `skills/release/SKILL.md`、`tools/README.md` |
-| 双仓发布流程与历史事故复盘 | 工作区根 `PLUGIN-WORKFLOW.md` |
+| 双仓（dsh-memory / dsh-client-ui-quote）发布流程与历史事故复盘 | 工作区根 `PLUGIN-WORKFLOW.md` |
 | 检索方案与基线数字 | `docs/retrieval-eval-2026-10-20.md` |
 | 简报为什么必须字节稳定 | `docs/briefing-cache-safety.md` |
 | 与 WorkBuddy 个人记忆的差距 | `docs/personal-memory-parity.md` |
@@ -130,7 +130,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 
 ### 2.4 项目级 skills
 
-本仓库自己的 skill 放在 `skills/`，只对本仓库生效，不安装到 Qoder 用户目录。新增或修改 skill 后，在 2.1 加一行路由。
+本仓库自己的 skill 放在 `skills/`，只对本仓库生效，不装进全局 skill 目录。新增或修改 skill 后，在 2.1 加一行路由。
 
 | 想做什么 | 读 |
 | --- | --- |

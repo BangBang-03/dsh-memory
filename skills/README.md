@@ -1,10 +1,10 @@
 # 项目级 skills
 
-本目录只放本仓库自己的 skill，不安装到 Qoder 用户目录。入口在 `AGENTS.md` 的「2.4 项目级 skills」。
+本目录只放本仓库自己的 skill，不安装到全局 skill 目录。入口在 `AGENTS.md` 的「2.4 项目级 skills」。
 
 | skill | 用途 |
 | --- | --- |
-| [`release/SKILL.md`](release/SKILL.md) | 正式发版、同步 `main`、打 `v*` 标签、核对 Release |
+| [`release/SKILL.md`](release/SKILL.md) | 正式发版、打 `v*` 标签、核对 Release |
 | [`docs-sync/SKILL.md`](docs-sync/SKILL.md) | 更新文件 / 更新文档 / 更新日志：README、AGENTS、REFERENCE、CHANGELOG 与 journal 的默认同步 |
 
 新增 skill 的约定：
