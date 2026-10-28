@@ -103,7 +103,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cat > notes-stable.md <<'NOTES'
-          稳定版。装上它（不需要凭据）：
+          **Memory Portrait** 稳定版。装上它（不需要凭据）：
 
           ```powershell
           pwsh -File install.ps1 -FromRelease -Channel stable
@@ -119,7 +119,7 @@ jobs:
             gh release edit "$GITHUB_REF_NAME" --prerelease=false --latest
           else
             gh release create "$GITHUB_REF_NAME" --verify-tag --latest \
-              --title "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME · Memory Portrait" \
               --notes-file notes-stable.md
           fi
           gh release upload "$GITHUB_REF_NAME" "dsh-memory-latest.tgz" "${{ steps.pack.outputs.file }}" --clobber
