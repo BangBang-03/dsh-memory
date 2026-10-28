@@ -2,6 +2,9 @@
 
 > 这是 v0.6.6 的完整规格与历史章节存档。安装入口、配置表、HTTP 契约以根目录 [`README.md`](../README.md) 为准；
 > 这里保留旧版页面结构、设计说明、导入格式、测试明细与边界讨论，方便查细节。
+>
+> 2026-10-28 起仓库已改为单一 `main` + `v*` 标签发布；文中「lab / main 双线」与 `lab-latest`
+> 相关章节是历史，当前流程见 [`skills/release/SKILL.md`](../skills/release/SKILL.md)。
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory/blob/main/LICENSE)

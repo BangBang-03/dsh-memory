@@ -8,7 +8,7 @@
 **DSH 的工作区长期记忆：模型记得住项目，但改不掉你的红线。**<br>
 **Long-term memory for DeepSeek Harness, with a paper trail.**
 
-![dsh-memory：一轮对话里的记忆回路](https://raw.githubusercontent.com/BangBang-03/dsh-memory/lab/docs/assets/hero.png)
+![dsh-memory：一轮对话里的记忆回路](https://raw.githubusercontent.com/BangBang-03/dsh-memory/main/docs/assets/hero.png)
 
 **中文** ｜ [English](#english)
 
@@ -45,13 +45,13 @@ dsh plugin --profile web add @bangbang-03/dsh-memory
 
 ### 桌面端
 
-把 [`install.ps1`](https://github.com/BangBang-03/dsh-memory/blob/lab/install.ps1) 下载到任意目录，然后：
+把 [`install.ps1`](https://github.com/BangBang-03/dsh-memory/blob/main/install.ps1) 下载到任意目录，然后：
 
 ```powershell
 pwsh -File install.ps1 -FromRelease -Channel stable
 ```
 
-脚本会下载最新稳定版 tarball、解包到 `~/.dsh/plugins/dsh-memory`，再完成垫片 / profile 清单 / junction 三步；**更新就是重跑同一条命令**。想跟实验线就去掉 `-Channel stable`（默认 `lab`）。
+脚本会下载最新稳定版 tarball、解包到 `~/.dsh/plugins/dsh-memory`，再完成垫片 / profile 清单 / junction 三步；**更新就是重跑同一条命令**。`-Channel lab` 是兼容别名，等同 `stable`。
 
 ### 源码
 
@@ -241,27 +241,27 @@ pwsh -File install.ps1             # 真装
 npm test   # 14 个套件 / 581 项断言
 ```
 
-- 检索：54 条记忆 × 60 条查询硬评测，Recall@5 1.000、MRR@10 0.930（自测口径，见 [评测说明](https://github.com/BangBang-03/dsh-memory/blob/lab/docs/retrieval-eval-2026-10-20.md)）。
+- 检索：54 条记忆 × 60 条查询硬评测，Recall@5 1.000、MRR@10 0.930（自测口径，见 [评测说明](https://github.com/BangBang-03/dsh-memory/blob/main/docs/retrieval-eval-2026-10-20.md)）。
 - 安全：100 条密钥样本全部脱敏；20 条注入样本全部命中；20 条正常文本零误报。
 - 简报稳定性：会话级冻结、确定性排序、轮末召回尾部注入去重。
 - 客户端：把设置页真的渲染出来，接到真实 `store` + `api` 上驱动交互。
 
 ## 维护与发布
 
-- 分支：`lab` 是开发线，`main` 是备份线（默认落后一版）；完整流程与验收见 [`skills/release/SKILL.md`](https://github.com/BangBang-03/dsh-memory/blob/lab/skills/release/SKILL.md)。
+- 分支：`main` 是唯一长期分支；推 `main` 只跑测试，正式版用 `v*` 标签发布；完整流程与验收见 [`skills/release/SKILL.md`](https://github.com/BangBang-03/dsh-memory/blob/main/skills/release/SKILL.md)。
 - 发版：`node tools/release.mjs`，然后 `node tools/release-watch.mjs`。
-- 完整规格、历史章节、导入格式、测试明细与边界讨论：[`docs/REFERENCE.md`](https://github.com/BangBang-03/dsh-memory/blob/lab/docs/REFERENCE.md)。
+- 完整规格、历史章节、导入格式、测试明细与边界讨论：[`docs/REFERENCE.md`](https://github.com/BangBang-03/dsh-memory/blob/main/docs/REFERENCE.md)。
 
 ## 文档
 
 | 想了解 | 读 |
 | --- | --- |
-| 完整规格（旧版 README 存档） | [docs/REFERENCE.md](https://github.com/BangBang-03/dsh-memory/blob/lab/docs/REFERENCE.md) |
-| 检索方案与基线 | [docs/retrieval-eval-2026-10-20.md](https://github.com/BangBang-03/dsh-memory/blob/lab/docs/retrieval-eval-2026-10-20.md) |
-| 简报为什么必须字节稳定 | [docs/briefing-cache-safety.md](https://github.com/BangBang-03/dsh-memory/blob/lab/docs/briefing-cache-safety.md) |
-| 与 WorkBuddy 个人记忆的差距 | [docs/personal-memory-parity.md](https://github.com/BangBang-03/dsh-memory/blob/lab/docs/personal-memory-parity.md) |
-| 市场扫描与竞品 | [docs/market-scan-2026-10.md](https://github.com/BangBang-03/dsh-memory/blob/lab/docs/market-scan-2026-10.md) |
-| 发版流程 | [skills/release/SKILL.md](https://github.com/BangBang-03/dsh-memory/blob/lab/skills/release/SKILL.md) |
+| 完整规格（旧版 README 存档） | [docs/REFERENCE.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/REFERENCE.md) |
+| 检索方案与基线 | [docs/retrieval-eval-2026-10-20.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/retrieval-eval-2026-10-20.md) |
+| 简报为什么必须字节稳定 | [docs/briefing-cache-safety.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/briefing-cache-safety.md) |
+| 与 WorkBuddy 个人记忆的差距 | [docs/personal-memory-parity.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/personal-memory-parity.md) |
+| 市场扫描与竞品 | [docs/market-scan-2026-10.md](https://github.com/BangBang-03/dsh-memory/blob/main/docs/market-scan-2026-10.md) |
+| 发版流程 | [skills/release/SKILL.md](https://github.com/BangBang-03/dsh-memory/blob/main/skills/release/SKILL.md) |
 
 ## English
 

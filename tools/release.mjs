@@ -6,11 +6,10 @@
  *   node tools/release.mjs          # 在 main 上执行
  *   node tools/release.mjs --dry    # 只做检查，不推不打标签
  *
- * 前置：main 上的代码已经是从 lab 合过来的稳定版，package.json 的版本号已经改成
- * 这次要发的号。正常顺序是：
- *   git checkout lab && …改代码、跑测试… && git commit
- *   node tools/push.mjs                    # 推 lab（CI 立刻发一个 -lab.N 预发布）
- *   git checkout main && git merge --ff-only lab
+ * 前置：main 上的代码已通过全量测试，package.json 的版本号已经改成这次要发的号。
+ * 正常顺序是：
+ *   git checkout main && …改代码、跑测试… && git commit
+ *   node tools/push.mjs                    # 推 main（CI 只跑测试，不发版）
  *   node tools/release.mjs                 # 推 main + 打标签 → 正式版
  */
 import { execFileSync } from "node:child_process";

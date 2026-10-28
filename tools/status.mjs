@@ -1,5 +1,5 @@
 /**
- * 看一眼两条线的状态：默认分支、各分支头、最近几次 CI、lab 预发布与最新正式版。
+ * 看一眼 main 的状态：默认分支、分支头、最近 CI、最新正式版。
  *
  *   node tools/status.mjs
  *
@@ -39,24 +39,17 @@ for (const branch of branches) {
 }
 
 const releases = (await api(`/repos/${repo}/releases?per_page=20`)) ?? [];
-const lab = releases.find((release) => release.tag_name === "lab-latest");
 const stable = releases.find((release) => release.prerelease === false);
-for (const [label, release] of [
-	["lab 通道   ", lab],
-	["stable 通道", stable],
-]) {
-	if (!release) {
-		console.log(label + "  (还没有)");
-		continue;
-	}
+if (!stable) {
+	console.log("stable     (还没有正式版)");
+} else {
 	console.log(
-		label +
-			"  " +
-			release.tag_name.padEnd(8) +
+		"stable     " +
+			stable.tag_name.padEnd(8) +
 			" " +
-			release.published_at.slice(0, 19) +
+			stable.published_at.slice(0, 19) +
 			"  资产 " +
-			release.assets.map((asset) => asset.name).join(", "),
+			stable.assets.map((asset) => asset.name).join(", "),
 	);
 }
 

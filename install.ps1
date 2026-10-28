@@ -27,8 +27,9 @@
   <DshHome>/plugins/dsh-memory，再对它执行上面三步。重跑同一条命令即完成更新
   （脚本会整体替换 plugins 里的旧版本，junction 与 profile 引用的目录名不变，
   所以 DSH 侧不需要任何额外动作）。
-  -FromRelease 走公开的 Release 资产，匿名可下，按 -Channel 选 lab（默认）或 stable；
-  -FromNpm 走 registry 协议（可写 dist-tag，如 @lab），用 GitHub Packages 时把 PAT
+  -FromRelease 走公开的 Release 资产，匿名可下，默认 stable；lab 是已废弃的别名，
+  映射到 stable，保留只是为了让老脚本不报错；
+  -FromNpm 走 registry 协议（可写 dist-tag，如 @beta），用 GitHub Packages 时把 PAT
   传给 -NpmToken（需 read:packages）。
 
 .PARAMETER Profile
@@ -51,12 +52,10 @@
   从 GitHub Release 装指定通道的最新版（公开资产，不需要任何凭据）。通道见 -Channel。
 
 .PARAMETER Channel
-  Release 通道，默认 lab（实验线）：
-    lab    实验线。资产挂在固定 tag `lab-latest` 的预发布上，lab 分支每推一次就覆盖：
-           releases/download/lab-latest/dsh-memory-lab.tgz
+  Release 通道，默认 stable：
     stable 稳定线。资产挂在最新正式 Release 上（/latest/ 天然跳过预发布）：
            releases/latest/download/dsh-memory-latest.tgz
-  两个通道解包到同一个 ~/.dsh/plugins/dsh-memory，换通道就是重跑一次命令。
+    lab    已废弃的别名，等价于 stable（保留是为了老脚本不报错）。
 
 .PARAMETER Registry
   npm registry 根地址，默认 https://registry.npmjs.org；GitHub Packages 用
@@ -72,8 +71,7 @@
 .EXAMPLE
   pwsh -File install.ps1                         # 装当前目录这份源码（开发用）
   pwsh -File install.ps1 -Profile web -DryRun
-  pwsh -File install.ps1 -FromRelease            # 装 lab 通道最新实验版（日常默认）
-  pwsh -File install.ps1 -FromRelease -Channel stable
+  pwsh -File install.ps1 -FromRelease            # 装最新稳定版（默认 stable）
   pwsh -File install.ps1 -FromNpm "@bangbang-03/dsh-memory" -Registry https://npm.pkg.github.com -NpmToken $env:NPM_TOKEN
 #>
 [CmdletBinding()]
@@ -85,7 +83,7 @@ param(
   [string]$FromUrl = '',
   [switch]$FromRelease,
   [ValidateSet('lab', 'stable')]
-  [string]$Channel = 'lab',
+  [string]$Channel = 'stable',
   [string]$Registry = 'https://registry.npmjs.org',
   [string]$NpmToken = $(if ($env:NPM_TOKEN) { $env:NPM_TOKEN } else { '' }),
   [switch]$DryRun
@@ -215,14 +213,18 @@ if ($FromNpm -or $FromUrl -or $FromRelease) {
   $specLabel = ''
   $npmName = ''
 
-  # 两条线的固定资产名（见 README「分支与发布通道」）。公开仓库的 Release 资产
-  # 匿名可下，所以 -FromRelease 不需要任何凭据 —— 这是日常首选路径。
+  # 固定资产名（见 README「维护与发布」）。公开仓库的 Release 资产匿名可下，
+  # 所以 -FromRelease 不需要任何凭据 —— 这是日常首选路径。
+  # lab 通道已合并到 stable；保留别名只是为了让老脚本不报错。
+  if ($FromRelease -and $Channel -eq 'lab') {
+    Write-Warning 'lab 通道已合并到 stable；本次按 stable 安装。'
+    $Channel = 'stable'
+  }
   $releaseUrls = @{
-    lab    = 'https://github.com/BangBang-03/dsh-memory/releases/download/lab-latest/dsh-memory-lab.tgz'
     stable = 'https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz'
   }
-  $releaseTags = @{ lab = 'lab-latest'; stable = 'latest' }
-  $releaseAssets = @{ lab = 'dsh-memory-lab.tgz'; stable = 'dsh-memory-latest.tgz' }
+  $releaseTags = @{ stable = 'latest' }
+  $releaseAssets = @{ stable = 'dsh-memory-latest.tgz' }
   $releaseTag = ''
   $releaseAsset = ''
 
@@ -281,7 +283,7 @@ if ($FromNpm -or $FromUrl -or $FromRelease) {
     }
     $distTags = $meta.'dist-tags'
     $version = if ($wantVersion) { $wantVersion } else { [string]$distTags.latest }
-    # 版本位写的是 dist-tag（latest / lab / beta …）时按标签解析，别当成版本号去查
+    # 版本位写的是 dist-tag（latest / beta / next …）时按标签解析，别当成版本号去查
     if ($wantVersion -and $distTags -and ($distTags.PSObject.Properties.Name -contains $wantVersion)) {
       $version = [string]$distTags.PSObject.Properties[$wantVersion].Value
     }
@@ -451,8 +453,8 @@ else {
   $installedVersion = ((Get-Content -LiteralPath (Join-Path $pkgRoot 'package.json') -Raw) | ConvertFrom-Json).version
   Write-Host "装好了（$PackageName@$installedVersion）。重启 DSH 桌面端（profile=$Profile）后：设置 → 记忆。"
   if ($FromNpm -or $FromUrl -or $FromRelease) {
-    Write-Host "更新：重跑同一条命令即可，脚本会整体替换 $remoteTarget 里的旧版本（通道之间也这样切）。"
+    Write-Host "更新：重跑同一条命令即可，脚本会整体替换 $remoteTarget 里的旧版本（不需要先卸载）。"
   }
-  if ($FromRelease) { Write-Host "通道：$Channel（lab 实验线 / stable 稳定线；换通道加 -Channel stable）。" }
+  if ($FromRelease) { Write-Host "通道：$Channel（latest 正式版；lab 是已废弃的别名）。" }
   Write-Host "回滚： pwsh -File uninstall.ps1 -Profile $Profile"
 }

@@ -160,12 +160,11 @@ if (npmRun) {
 	else npmjs = "结果 " + (publishStep?.conclusion ?? "未知");
 }
 
-const labRef = await api(`/repos/${repo}/git/ref/heads/lab`);
 console.log("");
 console.log("正式版验收通过");
 console.log("version   " + version);
 console.log("tag       " + tag + " -> " + sha.slice(0, 9));
-console.log("main      " + mainRef.object.sha.slice(0, 9) + " / lab " + labRef.object.sha.slice(0, 9));
+console.log("main      " + mainRef.object.sha.slice(0, 9));
 console.log("release   " + release.html_url);
 console.log("assets    " + assets.join(", "));
 console.log("npmjs     " + npmjs);

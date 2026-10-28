@@ -2,17 +2,17 @@
  * `git push` over the GitHub REST API —— 本机连不上 github.com:443，只通 api.github.com。
  *
  *   node tools/push.mjs                 # 推当前分支（推到同名远端分支）
- *   node tools/push.mjs --branch lab    # 指名分支（得先 checkout 到它）
+ *   node tools/push.mjs --branch main   # 指名分支（得先 checkout 到它）
  *   node tools/push.mjs --dry           # 只报告要推哪些提交
  *
  * 推法：按本地提交逐个在远端重建 —— 只发这个提交改动过的 blob，在远端父提交的
  * base_tree 上拼出新 tree，**tree sha 与本地一致才建提交**（内容不等价就中止，不动 ref）。
  * 远端父提交必须与本地父提交内容一致（tree 比对），所以分叉时它会直接报错而不是强推。
  *
- * 输出里的 `base` 是远端旧头在本地的对应提交（tree 相同、SHA 可能不同）：
- * 默认推 lab 后，main 应快进到它，而不是远端旧 SHA。
+ * 输出里的 `base` 是远端旧头在本地的对应提交（tree 相同、SHA 可能不同），
+ * 仅用于人工核对；main + v* 标签模型不再需要把 main 追到 base。
  *
- * 远端还没有这条分支时会新建（首推 lab 分支就是这条路）。
+ * 远端还没有这条分支时会新建。
  * token 取 GH_TOKEN 环境变量，否则读本机 git credential store 里 github.com 的凭据。
  */
 import { execFileSync } from "node:child_process";

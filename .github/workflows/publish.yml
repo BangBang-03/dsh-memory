@@ -1,20 +1,10 @@
-# 两条线各自发各自的 —— lab 是实验线（默认分支），main 是稳定线。
+# 单线发布：main 是唯一长期分支，正式版用 v* 标签。
 #
-#   lab 分支   实验线。每次 push 都以「下一个补丁号-lab.<run_number>」发到
-#              GitHub Packages 的 `lab` dist-tag，并把 tarball 挂到固定 tag `lab-latest`
-#              的预发布（prerelease）上，永不碰 latest。
-#                 装实验版：pwsh -File install.ps1 -FromRelease            # 默认 lab
-#                 装稳定版：pwsh -File install.ps1 -FromRelease -Channel stable
-#   v* 标签    稳定线。在 main 上打 tag（tools/release.mjs 会做），发到 `latest`，
-#              并把 tarball 挂到该 tag 的正式 Release。
+#   main push   只跑纯逻辑层测试，不发布；
+#   v* tag      跑测试 + 校验版本 + 发 GitHub Packages `latest` + 建正式 Release。
 #
-# 本机 PAT 没有 write:packages（403 实测），所以发布统一在 Actions 里用 GITHUB_TOKEN；
-# Actions 的 token 对本仓库天然带 packages:write / contents:write（真正发版的就是它）。
-#
-# 资产名是**固定**的，安装脚本只认这两个名字：
-#   releases/latest/download/dsh-memory-latest.tgz   ← stable（/latest/ 天然跳过预发布）
-#   releases/download/lab-latest/dsh-memory-lab.tgz    ← lab（固定 tag 的预发布，每次覆盖）
-#
+# 发布统一在 Actions 里用 GITHUB_TOKEN；本机 PAT 没有 write:packages（403 实测）。
+# 资产名固定：releases/latest/download/dsh-memory-latest.tgz
 # 只改文档可以写 [skip ci] 跳过编译与发布。
 
 name: publish
@@ -23,7 +13,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - lab
+      - main
     tags:
       - "v*"
 
@@ -36,10 +26,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  lab:
-    # 实验线：lab 分支每推一次发一个预发布，版本号唯一（-lab.<run_number>），
-    # 不覆盖 latest；将来正式发 0.5.2 时它排在 0.5.2-lab.N 之上，semver 顺序不拧。
-    if: github.ref == 'refs/heads/lab'
+  test:
+    # main 上的日常提交只验证，不发版。
+    if: github.ref == 'refs/heads/main'
     # windows：store 套件里的 slugify 按 Windows 路径语义断言（插件只跑在 DSH 桌面端），
     # 换成 ubuntu 会有两条失败。步骤本身用 bash，跨平台写法不用改。
     runs-on: windows-latest
@@ -52,10 +41,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://npm.pkg.github.com
 
       # host / activate / client / install 四个套件要 DSH 运行时包（本机靠 junction
-      # 垫片解析），runner 上没有；两条线都只跑纯逻辑层，其余套件发版前在本地跑。
+      # 垫片解析），runner 上没有；CI 只跑纯逻辑层，其余套件发版前在本地跑。
       - name: 纯逻辑层测试
         run: |
           node test/store.test.mjs
@@ -64,58 +52,8 @@ jobs:
           node test/distill.test.mjs
           node test/api.test.mjs
 
-      - name: 打上 lab 版本号
-        id: version
-        run: |
-          base=$(node -p "require('./package.json').version.split('-')[0]")
-          next=$(node -e "const v = '$base'.split('.').map(Number); console.log(v[0] + '.' + v[1] + '.' + (v[2] + 1))")
-          version="$next-lab.${{ github.run_number }}"
-          npm pkg set "version=$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "本次发布 $version"
-
-      - name: 发布到 GitHub Packages（dist-tag lab）
-        run: npm publish --ignore-scripts --tag lab
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 打包 Release 资产
-        id: pack
-        run: |
-          file=$(npm pack --ignore-scripts 2>/dev/null | tail -n1)
-          test -f "$file"
-          cp "$file" dsh-memory-lab.tgz
-          echo "file=$file" >> "$GITHUB_OUTPUT"
-          ls -l *.tgz
-
-      - name: 更新 lab 预发布（固定 tag lab）
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          cat > notes-lab.md <<'NOTES'
-          这是 **lab 实验线**的自动构建，随时可能变；稳定版在
-          [latest](https://github.com/BangBang-03/dsh-memory/releases/latest)。
-
-          装上它（默认通道就是 lab，不需要凭据）：
-
-          ```powershell
-          pwsh -File install.ps1 -FromRelease
-          ```
-
-          想换回稳定版：`pwsh -File install.ps1 -FromRelease -Channel stable`
-          NOTES
-          # 固定 tag 每次重建：tag lab-latest 跟着 lab 头走，releases/download/lab-latest/… 永远指向最新实验版
-          gh release delete lab-latest --yes --cleanup-tag || true
-          gh release create lab-latest \
-            "dsh-memory-lab.tgz" "${{ steps.pack.outputs.file }}" \
-            --target "$GITHUB_SHA" \
-            --prerelease \
-            --title "lab $VERSION" \
-            --notes-file notes-lab.md
-
   stable:
-    # 稳定线：main 上打 v* 标签才发，发到 latest 并建正式 Release。
+    # 正式版：main 上打 v* 标签才发。
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     defaults:
@@ -171,7 +109,11 @@ jobs:
           pwsh -File install.ps1 -FromRelease -Channel stable
           ```
 
-          实验版在 [lab-latest](https://github.com/BangBang-03/dsh-memory/releases/tag/lab-latest)。
+          也可以直接用一条命令：
+
+          ```powershell
+          dsh plugin --profile web add "https://github.com/BangBang-03/dsh-memory/releases/latest/download/dsh-memory-latest.tgz"
+          ```
           NOTES
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --prerelease=false --latest

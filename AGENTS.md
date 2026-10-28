@@ -8,10 +8,9 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 客户端半 `lib/client.js`（设置面板「记忆」页）+ 其余 `lib/*.js` 纯 Node 逻辑层（不 import 任何 DSH 运行时，可脱离宿主单测）。
 项目级 skill 放在 `skills/`（只对本仓库生效，不安装到 Qoder 用户目录），路由见 2.4。
 
-分支一句话：GitHub 默认分支是 **`lab`**（开发线，永远比 `main` 新一版）；**`main` 是备份线**，默认只追到
-**上一次推 lab 之前的旧 lab 状态**（`push.mjs` 输出的 `base`，是远端旧头在本地的对应提交）；
-只有正式发版或你明确说「一起推 main」时才追平 `lab`。
-推 `main` 不触发任何 CI —— `.github/workflows/publish.yml` 只监听 `lab` 与 `v*` 标签。
+分支一句话：GitHub 默认分支是 **`main`**，也是唯一长期分支；正式版用 **`v*` 标签**发布。
+功能开发走短命分支或直接 `main`，合入前跑全量测试；`lab` 已删除，不再维护双线。
+推 `main` 只跑测试；`v*` 标签才触发发布。
 
 ---
 
@@ -46,14 +45,14 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 
 | # | 红线 | 违反了会怎样 |
 | --- | --- | --- |
-| **P1** | 只在 `lab` 上提交；**默认 `lab` 永远比 `main` 新一版**——推 lab 后用 `tools/push.mjs` 输出的 `base`（远端旧头在本地的对应提交）把 `main` 快进到上一版；只有正式发版或你明确说「一起推 main」时才让 `main` 追平当前 `lab`。`main` 只 `merge --ff-only`，不在上面直接提交、不产生 merge commit | 快进失败 = 两线已分叉，**停下来查清**，不要用 rebase / force 掩盖；把 main 提前追平会让未验证的一版进备份线，落后不止一版则说明默认同步漏了 |
-| **P2** | 已推送的 `lab` 不 amend、不 rebase、不 force push | 远端已开 `allow_force_pushes=false`；改写历史会造平行提交，CI 与其它 clone 全对不上 |
+| **P1** | 长期分支只有 `main`；功能分支必须短命，合回 `main` 前跑全量测试。正式版只在 `main` 头打 `v*` 标签；不再维护 `lab` 长期线，也不做「推 lab 后把 main 追到上一版」的同步 | 两条长期线会让默认分支、发布源与文档各说各话；`main` 与 tag 不一致时先查清再发 |
+| **P2** | 已推送的 `main` 不 amend、不 rebase、不 force push | 远端已开 `allow_force_pushes=false`；改写历史会造平行提交，CI 与其它 clone 全对不上 |
 | **P3** | git 与 REST 两条推送通道**不要混用** | REST 重建的提交时区归一成 `+0000`，同树不同 SHA，混推就是分叉 |
 | **P4** | 改 `~/.dsh/profiles/**` 前必须备份（`install.ps1` 自带秒级时间戳备份，手工改也要先备份） | 把用户的 DSH 装坏且无从回滚 |
 | **P5** | 卸载 / 替换只动 junction 与清单项；碰到同名**真实目录**直接报错退出，不许 `Remove-Item -Recurse` | PowerShell 5.1 会跟进 junction 删到共享的 `@deepseek-ai/*`（脚本里已专门防这一步） |
 | **P6** | 改完跑 `node test/run-all.mjs`（14 套件 / 581 断言）**全绿**才算改完；纯文档提交可跳过 | `store` / `api` / `briefing` 三套守的是数据完整性与注入稳定性 |
 | **P7** | 不加运行时依赖：`dependencies` 保持空，`peerDependencies` 全 optional，`lib/*.js` 只许 import `node:*` 与相对路径 | 插件要在用户机器上零安装；加依赖等于要求所有人重装 |
-| **P8** | 正式版只在 `main` 打 `v*` 标签——**打之前先把 `main` 快进到 `lab`**（发版属于默认「落后一版」策略的明确例外），且 `package.json` 不许是 `-lab.N` 预发布号；不手改远端保护设置 | 标签挂在落后的 `main` 上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来。完整步骤与验收见 `skills/release/SKILL.md` |
+| **P8** | 正式版只在 `main` 打 `v*` 标签，且 `package.json` 不许是 `-lab.N` 预发布号；打标签前 `main` 必须已推送并通过测试；不手改远端保护设置 | 标签挂在旧提交上，`/releases/latest` 发出去的就是旧代码；预发布号漏上去再也升不回来。完整步骤与验收见 `skills/release/SKILL.md` |
 
 ---
 
@@ -80,7 +79,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 密钥脱敏 / taint 检测 / trust 分级 | `lib/security.js` | `lib/store.js` 的全部写入路径 | `security` |
 | 质量分与低分闸门 | `lib/quality.js` | `lib/store.js` 的 `qualityFields` | `store` |
 | 既有记忆解析（WorkBuddy / Qoder / Claude Code / Codex / Windsurf） | `lib/markdown.js` | 扫描落点 `memorySourceSpecs()` | `markdown` |
-| 安装 / 卸载 / 远程安装 / 通道切换 | `install.ps1`、`uninstall.ps1` | `cordis.patch.yml` | `install` |
+| 安装 / 卸载 / 远程安装 | `install.ps1`、`uninstall.ps1` | `cordis.patch.yml` | `install` |
 | 推送、发版、远端同步 | `skills/release/SKILL.md` | `tools/push.mjs`、`tools/release.mjs`、`tools/release-watch.mjs`、`tools/sync.mjs`、`tools/status.mjs` | 见 P6；正式版按 skill 的验收清单 |
 
 ### 2.2 症状 → 先去哪
@@ -106,7 +105,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 首页「需要处理」数字与收件箱不一致 | `healthData` / `queueData` / `reviewData` 的拉取条件；收件箱只在 `attentionOpen` 时拉 queue / reviews |
 | 改完代码界面没变 | 宿主半（`lib/index.js` 等）改动要**重启 DSH**；纯客户端改动 `Ctrl+Shift+R` 硬刷新即可 |
 | 正式版没发出去 / Release 不是 Latest / 资产缺失 / npmjs 没更新 | 先跑 `node tools/release-watch.mjs` 看 CI 与 Release 结论；完整流程见 `skills/release/SKILL.md` |
-| `main` 提前追平了未验证的 `lab` / 落后不止一版 | 检查默认推送策略：是否用 `push.mjs` 的 `base` 把 `main` 追到上一版；见 `skills/release/SKILL.md` |
+| `main` 与最新 tag 不一致 | 正常：tag 之后可能还有未发版提交；发版前先 bump 版本并重新打 tag，不要移动旧 tag |
 
 ### 2.3 文档路由
 
@@ -114,7 +113,8 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 | --- | --- |
 | 安装、快速开始、配置表、HTTP 契约 | `README.md` |
 | 完整规格、历史章节、导入格式、测试明细、边界 | `docs/REFERENCE.md` |
-| 分支 / 发版 / 推送通道与事故复盘 | 工作区根 `PLUGIN-WORKFLOW.md` |
+| 分支 / 发版 / 推送通道 | `skills/release/SKILL.md`、`tools/README.md` |
+| lab/main 时代的事故复盘（历史） | 工作区根 `PLUGIN-WORKFLOW.md` |
 | 检索方案与基线数字 | `docs/retrieval-eval-2026-10-20.md` |
 | 简报为什么必须字节稳定 | `docs/briefing-cache-safety.md` |
 | 与 WorkBuddy 个人记忆的差距 | `docs/personal-memory-parity.md` |
@@ -128,7 +128,7 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 
 | 想做什么 | 读 |
 | --- | --- |
-| 正式发版、同步 `main`、打 `v*` 标签、核对 Release | `skills/release/SKILL.md` |
+| 正式发版、打 `v*` 标签、核对 Release | `skills/release/SKILL.md` |
 | 新增项目级 skill 的目录与 frontmatter 约定 | `skills/README.md` |
 
 ---
@@ -141,26 +141,13 @@ node test/store.test.mjs               # 单套件：把 store 换成 retrieval 
 
 pwsh -File install.ps1 -DryRun         # 只看要改什么，不落盘
 pwsh -File install.ps1                 # 本地装（junction + profile 清单）
-pwsh -File install.ps1 -FromRelease    # 远程装 lab；加 -Channel stable 换稳定线
+pwsh -File install.ps1 -FromRelease    # 远程装最新稳定版（默认 stable）
 pwsh -File uninstall.ps1 [-PurgeStorage]
 
-node tools/status.mjs                  # 两条线的头、lab/stable 通道、最近 CI
-```
-
-```bash
-# 默认：lab 永远比 main 新一版
-out=$(node tools/push.mjs --branch lab); printf '%s\n' "$out"   # 输出里的 base = 上一版在本地的对应提交
-# 输出 synced yes（已经同步）时跳过下面三行（没有新版本可追）
-base=$(printf '%s\n' "$out" | awk '/^base /{print $2; exit}')
-git checkout main
-[ -z "$base" ] || git merge --ff-only "$base"   # main 只追到上一版 lab
-node tools/push.mjs --branch main               # 备份上线；publish.yml 不监听 main，静默
-git checkout lab
-
-# 只有明确说「一起推 main」时才追平当前 lab（git merge --ff-only lab）
-# 正式发版：先在 lab bump 版本并跑全量测试，再快进 main；完整步骤见 skills/release/SKILL.md
-node tools/release.mjs                          # 在 main 上：推 main + 打 v* 标签
-node tools/release-watch.mjs                    # 等 CI + 核对 Release
+node tools/status.mjs                  # main / 最新正式版 / 最近 CI
+node tools/push.mjs --branch main      # 推 main（REST）
+node tools/release.mjs                 # 在 main 上：推 main + 打 v* 标签
+node tools/release-watch.mjs           # 等 CI + 核对 Release
 ```
 
 ---
