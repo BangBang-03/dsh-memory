@@ -10,7 +10,7 @@
 
 ### Changed
 
-- 暂无。
+- 修正 DSH STORE 契约：入口 ID 改为 `dsh-memory-portrait`；DSH 兼容范围收窄到 `>=0.2.0-rc.2 <0.2.1-rc.4`，逐版本声明 `0.2.1-rc.3` compatible、`0.2.1-rc.4` / `0.2.2-alpha.2` unknown。
 
 ### Fixed
 

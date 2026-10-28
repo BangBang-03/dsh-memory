@@ -68,15 +68,18 @@
       "platform": "web"
     },
     "compatibility": {
-      "dsh": ">=0.2.0-rc.1",
+      "dsh": ">=0.2.0-rc.2 <0.2.1-rc.4",
       "dshReleases": {
-        "0.2.0-rc.2": "compatible"
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-rc.3": "compatible",
+        "0.2.1-rc.4": "unknown",
+        "0.2.2-alpha.2": "unknown"
       }
     }
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.0-rc.1"
+    "dsh": ">=0.2.0-rc.2 <0.2.1-rc.4"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",

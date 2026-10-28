@@ -61,7 +61,7 @@ function seed() {
 
   fs.rmSync(fakePkg, { recursive: true, force: true });
   fs.mkdirSync(path.join(fakePkg, 'lib'), { recursive: true });
-  fs.writeFileSync(path.join(fakePkg, 'cordis.patch.yml'), `- insert:\n    - id: dsh-memory\n      name: '${PKG_NAME}'\n`, 'utf8');
+  fs.writeFileSync(path.join(fakePkg, 'cordis.patch.yml'), `- insert:\n    - id: dsh-memory-portrait\n      name: '${PKG_NAME}'\n`, 'utf8');
   fs.writeFileSync(path.join(fakePkg, 'package.json'), `${JSON.stringify({ name: PKG_NAME, version: '0.1.0' })}\n`, 'utf8');
   fs.writeFileSync(path.join(fakePkg, 'lib', 'index.js'), 'export function apply() {}\n', 'utf8');
 }
@@ -277,7 +277,7 @@ function buildTgz(version, dest) {
     path.join(src, 'package', 'package.json'),
     `${JSON.stringify({ name: '@bangbang-03/dsh-memory', version, type: 'module' })}\n`,
   );
-  fs.writeFileSync(path.join(src, 'package', 'cordis.patch.yml'), `- insert:\n    - id: dsh-memory\n      name: '${PKG_NAME}'\n`);
+  fs.writeFileSync(path.join(src, 'package', 'cordis.patch.yml'), `- insert:\n    - id: dsh-memory-portrait\n      name: '${PKG_NAME}'\n`);
   fs.writeFileSync(path.join(src, 'package', 'lib', 'index.js'), 'export function apply() {}\n');
   fs.writeFileSync(path.join(src, 'package', 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   /* GNU tar 会把 "C:\xxx" 当成远程主机，所以用相对文件名 + cwd。 */

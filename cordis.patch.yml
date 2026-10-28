@@ -1,4 +1,4 @@
-# Bundle layer for dsh-memory.
+# Bundle layer for Memory Portrait (dsh-memory-portrait).
 #
 # Used when this package is selected as a profile bundle
 # (`dsh plugin --profile <name> add link:<path-to-this-package>`): the row below
@@ -8,5 +8,5 @@
 # ⚠️ `name` 必须是**可解析的包名**（= package.json 的 name），不能用别名：
 # 客户端半的浏览器模块按 manifest 包名认领，别名安装会让界面整块消失而宿主半照常工作。
 - insert:
-    - id: dsh-memory
+    - id: dsh-memory-portrait
       name: '@bangbang-03/dsh-memory'

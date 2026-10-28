@@ -73,6 +73,17 @@ pwsh -File install.ps1             # 真装
 
 装好后打开 **设置 → 记忆**。宿主路由是 `/memory/api`，只监听回环地址；客户端用 `new URL("memory/api/…", document.baseURI)` 解析，反代前缀 / `dsh-app://` 外壳下也能到达。
 
+## 兼容性
+
+| DSH 版本 | 状态 |
+| --- | --- |
+| `0.2.0-rc.2` | compatible |
+| `0.2.1-rc.3` | compatible（当前桌面版） |
+| `0.2.1-rc.4` | unknown（未测试） |
+| `0.2.2-alpha.2` | unknown（未测试） |
+
+Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.2.1-rc.4`。未测试版本不冒充 compatible，DSH STORE 会按 `dsh.compatibility.dshReleases` 的逐版本声明判断安装资格。
+
 ## 它怎么工作
 
 | 通路 | 触发 | 做什么 |
