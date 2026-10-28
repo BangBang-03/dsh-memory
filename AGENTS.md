@@ -12,6 +12,9 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 功能开发走短命分支或直接 `main`，合入前跑全量测试；`lab` 已删除，不再维护双线。
 推 `main` 只跑测试；`v*` 标签才触发发布。
 
+仓库地址：**`BangBang-03/dsh-memory-portrait`**（品牌 Memory Portrait / 记忆画像）；npm 包名仍是
+`@bangbang-03/dsh-memory`，安装命令不变。
+
 ---
 
 ## 1. 红线
@@ -121,7 +124,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 与 WorkBuddy 个人记忆的差距 | `docs/personal-memory-parity.md` |
 | 市场同类扫描、插件自查与竞品 | `docs/market-scan-2026-10.md`、`docs/dsh-memory-landscape-2026-10.md` |
 | 头部这一个月的新机制、可抄清单与优先级 | `docs/competitive-delta-2026-10-20.md` |
-| 市场实时榜与**分发堵点复盘**（2026-10-27 快照；npmjs 0.6.6 已发） | `docs/market-top10-2026-10-27.md` |
+| 市场实时榜与**分发堵点复盘**（2026-10-27 快照；npmjs 0.6.7 已发） | `docs/market-top10-2026-10-27.md` |
 
 ### 2.4 项目级 skills
 
