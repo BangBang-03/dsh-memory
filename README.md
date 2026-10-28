@@ -263,6 +263,7 @@ npm test   # 14 个套件 / 581 项断言
 | 想了解 | 读 |
 | --- | --- |
 | 完整规格（旧版 README 存档） | [docs/REFERENCE.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/REFERENCE.md) |
+| 版本变更日志 | [CHANGELOG.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/CHANGELOG.md) |
 | 检索方案与基线 | [docs/retrieval-eval-2026-10-20.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/retrieval-eval-2026-10-20.md) |
 | 简报为什么必须字节稳定 | [docs/briefing-cache-safety.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/briefing-cache-safety.md) |
 | 与 WorkBuddy 个人记忆的差距 | [docs/personal-memory-parity.md](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/personal-memory-parity.md) |

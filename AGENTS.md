@@ -84,6 +84,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 既有记忆解析（WorkBuddy / Qoder / Claude Code / Codex / Windsurf） | `lib/markdown.js` | 扫描落点 `memorySourceSpecs()` | `markdown` |
 | 安装 / 卸载 / 远程安装 | `install.ps1`、`uninstall.ps1` | `cordis.patch.yml` | `install` |
 | 推送、发版、远端同步 | `skills/release/SKILL.md` | `tools/push.mjs`、`tools/release.mjs`、`tools/release-watch.mjs`、`tools/sync.mjs`、`tools/status.mjs` | 见 P6；正式版按 skill 的验收清单 |
+| 文档同步 / 更新日志 | `skills/docs-sync/SKILL.md` | `README.md`、`AGENTS.md`、`CHANGELOG.md`、`docs/README.md` | 按 skill 的检查清单 |
 
 ### 2.2 症状 → 先去哪
 
@@ -116,6 +117,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 | --- | --- |
 | 安装、快速开始、配置表、HTTP 契约 | `README.md` |
 | 完整规格、历史章节、导入格式、测试明细、边界 | `docs/REFERENCE.md` |
+| 版本变更日志 | `CHANGELOG.md` |
 | 发布素材与渠道草稿 | `docs/launch-copy-2026-10-28.md` |
 | 分支 / 发版 / 推送通道 | `skills/release/SKILL.md`、`tools/README.md` |
 | 双仓发布流程与历史事故复盘 | 工作区根 `PLUGIN-WORKFLOW.md` |
@@ -133,6 +135,7 @@ DSH 的工作区记忆画像插件（真包名 `@bangbang-03/dsh-memory`）。�
 | 想做什么 | 读 |
 | --- | --- |
 | 正式发版、打 `v*` 标签、核对 Release | `skills/release/SKILL.md` |
+| 更新文件 / 更新文档 / 更新日志 | `skills/docs-sync/SKILL.md` |
 | 新增项目级 skill 的目录与 frontmatter 约定 | `skills/README.md` |
 
 ---
