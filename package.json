@@ -1,7 +1,7 @@
 {
   "name": "@bangbang-03/dsh-memory",
   "version": "0.6.6",
-  "description": "DSH 工作区长期记忆：索引式简报省 token、轮末相关召回、memory 工具按需读写、版本链与体检、轮次结束自动提炼（可草稿审批），设置面板里可视化查看与管理。",
+  "description": "DSH 工作区长期记忆：索引简报省 token、轮末本地召回、红线 / 审批队列 / 版本链 / 注入审计；零依赖、不出站。",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -15,7 +15,13 @@
     "memory-bank",
     "memory-tool",
     "approval-queue",
-    "portrait"
+    "portrait",
+    "agent-memory",
+    "ai-agents",
+    "coding-agent",
+    "prompt-caching",
+    "local-first",
+    "governance"
   ],
   "license": "MIT",
   "author": "BangBang-03",

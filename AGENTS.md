@@ -1,7 +1,8 @@
 # AGENTS.md
 
 DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。本文件只放两样东西：**改代码不能踩的红线**、
-**改什么该动哪个文件的路由表**。设计取舍、竞品对标、机制说明在 `README.md`，不要往这里抄。
+**改什么该动哪个文件的路由表**。设计取舍、竞品对标、机制细节在 `docs/REFERENCE.md`（根 `README.md` 只留安装、
+快速开始与配置 / HTTP 契约），不要往这里抄。
 
 结构一句话：宿主半 `lib/index.js`（简报注入 / `memory` 工具 / `/memory/api` 路由 / 轮末召回）+
 客户端半 `lib/client.js`（设置面板「记忆」页）+ 其余 `lib/*.js` 纯 Node 逻辑层（不 import 任何 DSH 运行时，可脱离宿主单测）。
@@ -111,14 +112,15 @@ DSH 的工作区长期记忆插件（真包名 `@bangbang-03/dsh-memory`）。�
 
 | 想了解 | 读 |
 | --- | --- |
-| 全部机制、配置表、HTTP 契约、边界 | `README.md` |
+| 安装、快速开始、配置表、HTTP 契约 | `README.md` |
+| 完整规格、历史章节、导入格式、测试明细、边界 | `docs/REFERENCE.md` |
 | 分支 / 发版 / 推送通道与事故复盘 | 工作区根 `PLUGIN-WORKFLOW.md` |
 | 检索方案与基线数字 | `docs/retrieval-eval-2026-10-20.md` |
 | 简报为什么必须字节稳定 | `docs/briefing-cache-safety.md` |
 | 与 WorkBuddy 个人记忆的差距 | `docs/personal-memory-parity.md` |
 | 市场同类扫描、插件自查与竞品 | `docs/market-scan-2026-10.md`、`docs/dsh-memory-landscape-2026-10.md` |
 | 头部这一个月的新机制、可抄清单与优先级 | `docs/competitive-delta-2026-10-20.md` |
-| 市场实时榜与**分发堵点根因**（npmjs 未发布 → `dl: null` → 排名沉底） | `docs/market-top10-2026-10-27.md` |
+| 市场实时榜与**分发堵点复盘**（2026-10-27 快照；npmjs 0.6.5 已发，0.6.6 待发） | `docs/market-top10-2026-10-27.md` |
 
 ### 2.4 项目级 skills
 
