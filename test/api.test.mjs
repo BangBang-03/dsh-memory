@@ -69,6 +69,8 @@ const api = createApi({
   settings,
   activeWorkspace: () => WS,
   listWorkspaces: () => KNOWN_WORKSPACES.map((root) => ({ key: workspaceKey(root), root, active: root === WS })),
+  workspaceForSession: (id) => (String(id).startsWith('s-brief') ? WS : ''),
+  activeSession: () => ({ id: 's-brief-1', workspace: WS }),
   captures: () => [{ at: '2026-01-01T00:00:00.000Z', status: 'saved', count: 2 }],
   version: '0.1.0',
   distillNow: async ({ text }) => [{ title: text.slice(0, 20), content: text, category: 'note', tags: [], confidence: 0.9 }],
@@ -744,25 +746,41 @@ await test('GET /health 报告曝光未用；打开后消失', async () => {
 
 await test('GET /health 报告疑似矛盾对、files 失效与 overBudget（briefingLimit 从设置透传）', async () => {
   const ws = path.join(tmp, 'ws-health-extra');
-  const keep = store.upsert(
+  /*
+   * 共享 store 里已经有 import-scan 导入的真实全局记忆。/health 的池子是「全局 + 本工作区」，
+   * 全局矛盾对一旦占满 10 对上限，本测试的工作区矛盾对就被挤掉。这里用独立 store，
+   * 只保留本测试自己的工作区，断言才对得准。
+   */
+  const isoStore = createMemoryStore({ dir: fs.mkdtempSync(path.join(tmp, 'health-iso-')) });
+  const isoApi = createApi({
+    store: isoStore,
+    settings,
+    activeWorkspace: () => ws,
+    listWorkspaces: () => [{ key: workspaceKey(ws), root: ws, active: true }],
+    version: '0.1.0',
+  });
+  const isoCall = (method, sub, options = {}) =>
+    isoApi.handle({ method, pathname: `${API_PREFIX}${sub}`, query: options.query || {}, body: options.body || null });
+
+  const keep = isoStore.upsert(
     { title: 'API 包管理器约定', content: '这个项目统一使用 pnpm 安装依赖。', tags: ['tooling'] },
     { workspace: ws },
   ).record;
-  const drop = store.upsert(
+  const drop = isoStore.upsert(
     { title: 'API 包管理器迁移', content: '不要再用 pnpm 了，改用 npm 安装依赖。', tags: ['tooling'] },
     { workspace: ws },
   ).record;
   for (let i = 0; i < 10; i += 1) {
-    store.upsert({ title: `健康扩展条目${i}`, content: `第 ${i} 条撑库容的记忆。` }, { workspace: ws });
+    isoStore.upsert({ title: `健康扩展条目${i}`, content: `第 ${i} 条撑库容的记忆。` }, { workspace: ws });
   }
   const deadAbs = path.join(tmp, 'no-such', 'gone.ts');
-  const deadRel = store.upsert(
+  const deadRel = isoStore.upsert(
     { title: '引用已删文件', content: '文件早没了。', files: [deadAbs, 'src/gone.ts'] },
     { workspace: ws },
   ).record;
 
   settings.set({ briefingLimit: 2 }); // 12 条 active > 2×5，应亮
-  const res = await call('GET', '/health', { query: { workspace: ws } });
+  const res = await isoCall('GET', '/health', { query: { workspace: ws } });
   assert.equal(res.status, 200);
   const pair = res.body.health.contradictions.find((c) => c.a === drop.id && c.b === keep.id);
   assert.ok(pair, '应报 pnpm/npm 疑似矛盾对');
@@ -774,7 +792,7 @@ await test('GET /health 报告疑似矛盾对、files 失效与 overBudget（bri
   assert.deepEqual(deadRow.files, [deadAbs, 'src/gone.ts'], '失效路径按原始形态返回');
 
   settings.set({ briefingLimit: 12 }); // 还原默认：12 条 < 60，不亮
-  const normal = await call('GET', '/health', { query: { workspace: ws } });
+  const normal = await isoCall('GET', '/health', { query: { workspace: ws } });
   assert.equal(normal.body.health.overBudget, false, '未超限不应亮');
   assert.equal(normal.body.health.overBudgetAdvice, '');
 });
@@ -1048,6 +1066,66 @@ await test('GET /sessions：按词重叠搜回当轮原话', async () => {
   assert.ok(res.body.results.some((row) => row.text.includes('BM25F')), '应搜回原话');
   const empty = await call('GET', '/sessions', { query: { q: '完全不相关的长颈鹿', workspace: WS } });
   assert.equal(empty.body.results.length, 0);
+});
+
+await test('GET /session-brief：只返回本会话的诉求与已沉淀记忆，草稿不可见', async () => {
+  store.sessionLogAppend(WS, { sessionId: 's-brief-1', turn: 1, text: '先做悬浮会话记忆卡' });
+  store.sessionLogAppend(WS, { sessionId: 's-brief-1', turn: 2, text: '把草稿挡在前台之外' });
+  store.sessionLogAppend(WS, { sessionId: 's-brief-2', turn: 1, text: '另一个会话的诉求' });
+  store.upsert(
+    {
+      title: '本会话已沉淀',
+      content: '前台卡只展示已生效记忆。',
+      category: 'fact',
+      source: 'manual',
+      sessionId: 's-brief-1',
+      evidence: { sessionId: 's-brief-1' },
+    },
+    { workspace: WS },
+  );
+  store.upsert(
+    {
+      title: '本会话草稿',
+      content: '草稿不应出现在前台卡。',
+      category: 'fact',
+      source: 'auto',
+      sessionId: 's-brief-1',
+      status: 'draft',
+    },
+    { workspace: WS },
+  );
+  store.upsert(
+    {
+      title: '其它会话的记忆',
+      content: '不应出现。',
+      category: 'fact',
+      source: 'manual',
+      sessionId: 's-brief-2',
+    },
+    { workspace: WS },
+  );
+
+  const res = await call('GET', '/session-brief', { query: { session: 's-brief-1' } });
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    res.body.entries.map((entry) => entry.text),
+    ['把草稿挡在前台之外', '先做悬浮会话记忆卡'],
+    '只应返回本会话的诉求，新的在前',
+  );
+  assert.equal(res.body.records.length, 1, '只应返回本会话已生效的记忆');
+  assert.equal(res.body.records[0].title, '本会话已沉淀');
+  assert.ok(res.body.updatedAt, '应给出最新时间');
+
+  const unknown = await call('GET', '/session-brief', { query: { session: 's-none' } });
+  assert.equal(unknown.body.entries.length, 0);
+  assert.equal(unknown.body.records.length, 0);
+  const missing = await call('GET', '/session-brief', { query: {} });
+  assert.equal(missing.body.session, 's-brief-1', '不传 session 时应回落最近活动会话');
+  assert.deepEqual(
+    missing.body.entries.map((entry) => entry.text),
+    ['把草稿挡在前台之外', '先做悬浮会话记忆卡'],
+  );
+  assert.equal(missing.body.records.length, 1);
 });
 
 await test('GET /injections：注入审计带预览，full=1 给原文，可按 kind 过滤', async () => {

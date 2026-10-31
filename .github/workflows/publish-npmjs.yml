@@ -49,6 +49,10 @@ jobs:
           node test/distill.test.mjs
           node test/api.test.mjs
 
+      - name: 兼容口径（README / package.json）
+        shell: bash
+        run: node tools/check-compat.mjs
+
       - name: NPM_TOKEN 是否配置
         id: guard
         shell: bash
@@ -80,3 +84,8 @@ jobs:
         run: npm publish --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: 核对 npmjs 清单与本地一致
+        if: steps.guard.outputs.has_token == 'true'
+        shell: bash
+        run: node tools/check-compat.mjs --npm

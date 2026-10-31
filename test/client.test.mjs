@@ -74,6 +74,7 @@ const api = createApi({
   settings,
   activeWorkspace: () => WS,
   listWorkspaces: () => [{ root: WS, key: 'k', count: 0, active: true }],
+  activeSession: () => ({ id: 's-hud', workspace: WS }),
   captures: () => captures,
   version: '0.1.0',
   captureNow: async () => ({ ok: true, saved: 1, reason: 'test' }),
@@ -144,7 +145,26 @@ function navButton(text) {
 }
 const navButtons = [navButton('通用设置'), navButton('记忆'), navButton('模型')];
 
+/* 前台会话卡的位置 / 展开 / 「该对话记忆」都存 localStorage；Node 侧用内存表顶替。 */
+const storage = new Map();
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: {
+    getItem(key) {
+      return storage.has(key) ? storage.get(key) : null;
+    },
+    setItem(key, value) {
+      storage.set(key, String(value));
+    },
+    removeItem(key) {
+      storage.delete(key);
+    },
+  },
+});
+
 const styleTags = [];
+/* 前台会话卡的会话标记（宿主只在对话容器上打这个只读属性）。 */
+const sessionNodes = [];
 const documentStub = {
   baseURI: 'http://127.0.0.1:19387/',
   body: {},
@@ -164,6 +184,7 @@ const documentStub = {
     if (selector === '[data-dshmem-nav]') {
       return navButtons.filter((button) => 'data-dshmem-nav' in button.attrs);
     }
+    if (selector === '[data-conversation-session]') return sessionNodes;
     return [];
   },
 };
@@ -236,7 +257,9 @@ factory(
  * ------------------------------------------------------------------ */
 
 let lang = 'zh';
+/* 设置页与前台会话卡各注册一个槽位：按 name 留档，设置页仍用 slotRegistration 别名。 */
 const slotRegistration = { name: null, options: null, component: null, disposer: null };
+const slotRegistrations = new Map();
 const localeRegistration = { ns: null, dicts: null };
 
 function dict(locale) {
@@ -247,6 +270,7 @@ function dict(locale) {
 }
 
 const effectDisposers = [];
+let pendingSlot = null;
 const ctx = {
   effect(fn) {
     const disposer = fn();
@@ -265,13 +289,27 @@ const ctx = {
   },
   slots: {
     inject(name, register) {
-      slotRegistration.name = name;
-      slotRegistration.disposer = register();
+      /* register 在 inject 的回调里同步执行；先占位，再让 register 写进这一条。 */
+      const current = { name, options: null, component: null, disposer: null };
+      pendingSlot = current;
+      current.disposer = register();
+      pendingSlot = null;
+      slotRegistrations.set(name, current);
+      if (name === 'settings.section') {
+        Object.assign(slotRegistration, {
+          name,
+          options: current.options,
+          component: current.component,
+          disposer: current.disposer,
+        });
+      }
       return () => {};
     },
     register(options, component) {
-      slotRegistration.options = options;
-      slotRegistration.component = component;
+      if (pendingSlot) {
+        pendingSlot.options = options;
+        pendingSlot.component = component;
+      }
       return () => {};
     },
   },
@@ -761,7 +799,30 @@ await test('切到设置页会渲染开关与保存按钮', async () => {
   const body = text();
   assert.match(body, new RegExp(makeT('zh')('sBriefing')));
   assert.match(body, new RegExp(makeT('zh')('sAuto')));
+  assert.match(body, new RegExp(makeT('zh')('sessionMemory')), '缺少该对话记忆开关');
   assert.ok(mini.findByText(view, makeT('zh')('save'), 'button'), '找不到保存设置按钮');
+
+  /* 该对话记忆默认开启；关闭只写本会话的本地开关，不碰工作区配置。 */
+  const sessionSwitch = mini
+    .findAll(view, (node) => (node.props?.className || '').split(/\s+/).includes('dshmem_switch'))
+    .find((node) => mini.textOf(node).includes(makeT('zh')('sessionMemory')));
+  assert.ok(sessionSwitch, '找不到该对话记忆开关');
+  const sessionInput = mini.findAll(sessionSwitch, (node) => node.type === 'input')[0];
+  assert.ok(sessionInput, '该对话记忆开关缺少 checkbox');
+  assert.equal(Boolean(sessionInput.props.checked), true, '该对话记忆默认应开启');
+  assert.equal(Boolean(sessionInput.props.disabled), false, '有当前会话时开关应可用');
+  sessionInput.props.onChange({ target: { checked: false } });
+  await settle(4);
+  assert.ok(
+    (storage.get('dsh-memory/session-hud/off') || '').includes('s-hud'),
+    '关闭后应把当前会话写进本地关闭列表',
+  );
+  sessionInput.props.onChange({ target: { checked: true } });
+  await settle(4);
+  assert.ok(
+    !(storage.get('dsh-memory/session-hud/off') || '').includes('s-hud'),
+    '重新开启后应移出关闭列表',
+  );
   // 镜像区必须指向工作区里那份文件，而不是主库路径。
   assert.match(body, /\.dsh-memory/, '镜像区应显示工作区镜像路径');
   assert.match(body, new RegExp(makeT('zh')('mirrorStorage')), '镜像区应标出主库旁车');
@@ -2279,6 +2340,124 @@ await test('空库首屏：引导卡 + 一键开启自动提炼（POST /settings
   } finally {
     activeApi = api;
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * 前台会话记忆卡（shell.overlay）
+ * ------------------------------------------------------------------ */
+
+/* 种子放在这里而不是顶部：前台卡的三条记录会改变列表/搜索/收件箱的计数，
+   提前种下去会让前面的界面断言全部漂移。 */
+store.sessionLogAppend(WS, { sessionId: 's-hud', turn: 1, text: '帮我把设置面板的悬浮卡做出来' });
+store.sessionLogAppend(WS, { sessionId: 's-hud', turn: 2, text: '顺便把草稿挡在前台之外' });
+store.upsert(
+  {
+    title: '会话卡已沉淀',
+    content: '前台会话卡只展示已生效的记忆。',
+    category: 'fact',
+    source: 'manual',
+    sessionId: 's-hud',
+    evidence: { sessionId: 's-hud' },
+  },
+  { workspace: WS },
+);
+store.upsert(
+  {
+    title: '会话卡草稿',
+    content: '这条草稿不能出现在前台。',
+    category: 'fact',
+    source: 'auto',
+    sessionId: 's-hud',
+    status: 'draft',
+  },
+  { workspace: WS },
+);
+store.upsert(
+  {
+    title: '别的会话记忆',
+    content: '不应出现在本会话卡里。',
+    category: 'fact',
+    source: 'manual',
+    sessionId: 's-other',
+  },
+  { workspace: WS },
+);
+
+const nodesByClass = (root, className) =>
+  mini.findAll(
+    root,
+    (node) =>
+      typeof node?.props?.className === 'string' && node.props.className.split(/\s+/).includes(className),
+  );
+
+await test('前台会话卡：无 DOM 会话标记时仍渲染，由宿主最近会话兜底', async () => {
+  const hud = slotRegistrations.get('shell.overlay');
+  assert.ok(hud, '没有注册 shell.overlay');
+  assert.equal(hud.options.id, 'session-hud');
+  assert.equal(hud.options.locale, 'settings.memory');
+  assert.equal(typeof hud.component, 'function');
+
+  sessionNodes.length = 0;
+  const handle = mini.render(mini.react.createElement(hud.component, { t: makeT('zh') }));
+  await settle(12);
+  const pills = nodesByClass(handle.tree, 'dshmem_hud_pill');
+  assert.equal(pills.length, 1, '没有 DOM 会话标记时也应渲染胶囊');
+  mini.click(pills[0]);
+  await settle(12);
+  const body = mini.textOf(nodesByClass(handle.tree, 'dshmem_hud_card')[0]);
+  assert.match(body, /帮我把设置面板的悬浮卡做出来/, '应由宿主回落的最近会话提供数据');
+});
+
+await test('前台会话卡：该对话记忆关闭时不渲染', async () => {
+  storage.set('dsh-memory/session-hud/off', JSON.stringify(['s-hud']));
+  try {
+    const hud = slotRegistrations.get('shell.overlay');
+    const handle = mini.render(mini.react.createElement(hud.component, { t: makeT('zh') }));
+    await settle(12);
+    assert.equal(nodesByClass(handle.tree, 'dshmem_hud').length, 0, '该对话关闭后卡片应隐藏');
+  } finally {
+    storage.delete('dsh-memory/session-hud/off');
+  }
+});
+
+await test('前台会话卡：收起为胶囊，展开后只显示本会话诉求与已生效记忆', async () => {
+  /* 前一个用例点开过卡片，展开状态会存下来；这里恢复到默认收起再断言胶囊。 */
+  storage.delete('dsh-memory/session-hud/open');
+  sessionNodes.push({
+    attrs: { 'data-conversation-session': 's-hud' },
+    getAttribute(name) {
+      return this.attrs[name] || null;
+    },
+    getClientRects() {
+      return [{}];
+    },
+  });
+  const hud = slotRegistrations.get('shell.overlay');
+  const hudHandle = mini.render(mini.react.createElement(hud.component, { t: makeT('zh') }));
+  await settle(12);
+
+  const pills = nodesByClass(hudHandle.tree, 'dshmem_hud_pill');
+  assert.equal(pills.length, 1, '有会话时应渲染记忆胶囊');
+  assert.match(mini.textOf(pills[0]), /会话记忆/, '胶囊应带标题');
+  mini.click(pills[0]);
+  await settle(12);
+
+  const card = nodesByClass(hudHandle.tree, 'dshmem_hud_card')[0];
+  assert.ok(card, '点击胶囊后应展开卡片');
+  const body = mini.textOf(card);
+  assert.match(body, new RegExp(escapeRe(makeT('zh')('hudAsks'))), '缺少本会话诉求段');
+  assert.match(body, /帮我把设置面板的悬浮卡做出来/, '缺少本会话诉求');
+  assert.match(body, /会话卡已沉淀/, '缺少本会话已沉淀记忆');
+  assert.doesNotMatch(body, /会话卡草稿/, '草稿不应出现在前台卡');
+  assert.doesNotMatch(body, /别的会话记忆/, '其它会话的记忆不应出现');
+  assert.match(body, /更新于 \d{2}:\d{2}/, '更新时间应精确到分钟');
+
+  const close = nodesByClass(hudHandle.tree, 'dshmem_hud_iconbtn').find((button) => mini.textOf(button) === '×');
+  assert.ok(close, '缺少收起按钮');
+  mini.click(close);
+  await settle(6);
+  assert.equal(nodesByClass(hudHandle.tree, 'dshmem_hud_card').length, 0, '收起后不应保留卡片');
+  assert.equal(nodesByClass(hudHandle.tree, 'dshmem_hud_pill').length, 1, '收起后应回到胶囊');
 });
 
 /* ------------------------------------------------------------------ *

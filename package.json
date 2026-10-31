@@ -67,19 +67,38 @@
     "client": {
       "platform": "web"
     },
+    "marketplace": {
+      "profiles": [
+        "web",
+        "desktop"
+      ],
+      "requiresBuildApproval": false,
+      "requiresRestart": true,
+      "manualSteps": true
+    },
+    "permissions": {
+      "level": "medium",
+      "files": "read-write",
+      "network": "none",
+      "commands": "git",
+      "credentials": [],
+      "externalServices": [],
+      "notes": "Read/write under ~/.dsh/storages/dsh-memory; optional workspace mirror <ws>/.dsh-memory/MEMORY.md and the AGENTS.md managed block. Read-only scans of WorkBuddy / Qoder / Claude Code / Codex / Windsurf memory dirs happen only on import. No outbound network; the settings API is served on the host's loopback webServer. The local git binary is used only for workspace identity detection."
+    },
     "compatibility": {
-      "dsh": ">=0.2.0-rc.2 <0.2.1-rc.4",
+      "dsh": ">=0.2.0-rc.2 <0.3.0-0",
       "dshReleases": {
         "0.2.0-rc.2": "compatible",
         "0.2.1-rc.3": "compatible",
         "0.2.1-rc.4": "unknown",
+        "0.2.1-rc.5": "compatible",
         "0.2.2-alpha.2": "unknown"
       }
     }
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.0-rc.2 <0.2.1-rc.4"
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",

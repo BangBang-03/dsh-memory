@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory-portrait?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory-portrait/releases/latest)
 [![npm](https://img.shields.io/npm/v/@bangbang-03/dsh-memory?color=4d6bfe&label=npm)](https://www.npmjs.com/package/@bangbang-03/dsh-memory)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory-portrait?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-581%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
+[![Tests](https://img.shields.io/badge/tests-591%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
 
 **DSH 的记忆画像：不是记住更多，而是让你看见它怎么理解你。**<br>
 **Long-term memory for DeepSeek Harness, with a portrait you can inspect.**
@@ -29,7 +29,7 @@
 
 ## 安装
 
-DSH ≥ 0.2.0-rc.2，web / 桌面。
+DSH ≥ 0.2.0-rc.2，web / 桌面。headless / TUI profile 尚未做端到端验证，暂不声明。
 
 ### 一条命令（推荐，web profile）
 
@@ -77,12 +77,17 @@ pwsh -File install.ps1             # 真装
 
 | DSH 版本 | 状态 |
 | --- | --- |
-| `0.2.0-rc.2` | compatible |
-| `0.2.1-rc.3` | compatible（当前桌面版） |
-| `0.2.1-rc.4` | unknown（未测试） |
-| `0.2.2-alpha.2` | unknown（未测试） |
+| `0.2.0-rc.2` | compatible（已测试） |
+| `0.2.1-rc.3` | compatible（已测试） |
+| `0.2.1-rc.4` | unknown（范围覆盖，未单独测试） |
+| `0.2.1-rc.5` | compatible（当前桌面版，已测试） |
+| `0.2.2-alpha.2` | unknown（范围覆盖，未测试） |
 
-Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.2.1-rc.4`。未测试版本不冒充 compatible，DSH STORE 会按 `dsh.compatibility.dshReleases` 的逐版本声明判断安装资格。
+Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.3.0-0`。范围按 **0.2 版本线**整体声明，避免 DSH 每发一个 nightly 就在宿主启动时被跳过；逐版本测试结论仍记在 `dsh.compatibility.dshReleases`，未测试的版本标 `unknown`，不冒充 compatible。
+
+> DSH 0.2.1 起，宿主在启动 / 重新组合时按 `engines.dsh` 判定组合包：不匹配的 bundle 会被**静默跳过**（列进 `skippedBundles`），市场卡片显示“已安装，与当前 dsh 不兼容”，插件功能整体不生效。升级 DSH 后若看到这行字，先确认上表的范围覆盖当前版本。
+
+> 兼容口径不是手写三份：`node tools/check-compat.mjs` 会核对 `package.json` 与 README 表格；`--npm` 再核对 npmjs 上已发布的同一版本。CI 在发版时跑后者。
 
 ## 它怎么工作
 
@@ -94,6 +99,7 @@ Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.2.1-rc.4`。未测试�
 | 路径 JIT | 工具触达 `files` | 相关记忆在下一步尾部注入；全路径 > 目录后缀 > 同名 |
 | 自动提炼 | 轮次结束（可选） | 结构化记忆；`captureMode: draft` 先进审批队列 |
 | Dream / 画像 | 启动 + 轮末到期检查 | 合并重复簇、报告矛盾、报告过期；画像按 6 小时自动刷新 |
+| 前台会话卡 | 对话中常驻（可收起） | 右下角悬浮卡：本会话诉求 + 本会话已沉淀记忆，草稿不可见；每次内容变化刷新「更新于 HH:MM」；可拖拽，位置本地记住；设置 → 记忆可用「该对话记忆」单独关闭本对话 |
 
 简报的排序不读 `useCount` / 当前时间，日期戳只用 `createdAt`，并且**会话级冻结**。这样同一会话的系统提示不会逐轮变化，前缀缓存不会因为记忆更新而整段作废。
 
@@ -220,6 +226,7 @@ Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.2.1-rc.4`。未测试�
 | POST | `/capture` | 立刻提炼一次（`captureMode` 决定落库还是进队列） |
 | POST | `/dream` | Dream 整理（手动补跑；与「启动整理」同一管线）：合并重复簇（红线不参与、置顶结果保持置顶）+ 按词法线索报告矛盾（**不自动归档**，逐对确认走 `/health/resolve time-order`）+ 报告过期未用 + 画像重写进待审 |
 | GET | `/sessions` | 会话检索（溯源）：按词重叠搜回当轮用户发言原文 + sessionId/turn |
+| GET | `/session-brief` | 前台会话卡：本会话的用户诉求 + 本会话沉淀的记忆（草稿与归档不可见）；按 `session` 精确过滤，不传时用最近活动会话兜底 |
 | GET | `/injections` | 注入审计：最近真正进 prompt 的内容（正文预览 + sha256 前 16 位 + id 列表 + 被挤掉的条目；`full=1` 给原文，`kind` 可过滤） |
 | GET | `/derivations` | 跨层派生链：每层派生了什么、源现在还成不成立（`state` 为 `fresh` / `dirty`，带失效原因） |
 | GET | `/reviews` | 复审队列：带失效条件、到期该复查的记忆（`due` / `soon`） |
@@ -255,7 +262,7 @@ Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.2.1-rc.4`。未测试�
 ## 测试
 
 ```powershell
-npm test   # 14 个套件 / 581 项断言
+npm test   # 14 个套件 / 591 项断言
 ```
 
 - 检索：54 条记忆 × 60 条查询硬评测，Recall@5 1.000、MRR@10 0.930（自测口径，见 [评测说明](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/retrieval-eval-2026-10-20.md)）。

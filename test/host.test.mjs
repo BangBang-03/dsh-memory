@@ -3,6 +3,10 @@
  * 运行：node test/host.test.mjs
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { checkLocal } from '../tools/check-compat.mjs';
+
+const manifest = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 let mod;
 try {
@@ -97,6 +101,53 @@ check('Config 拒绝越界值', () => {
 
 check('API_PREFIX 常量正确', () => assert.equal(mod.API_PREFIX, '/memory/api'));
 check('GLOBAL_KEY 常量正确', () => assert.equal(mod.GLOBAL_KEY, '_global'));
+
+/*
+ * 清单契约：用户装的是整包，宿主只看 package.json 的 engines.dsh。
+ * 两处范围漂移过一次——0.2.1-rc.5 被 `<0.2.1-rc.4` 排除，宿主启动时静默跳过 bundle，
+ * 市场卡片报“已安装，与当前 dsh 不兼容”。这里把“0.2 版本线整体声明”钉成测试，
+ * 再收窄就必须显式改测试，而不是悄悄把当前桌面版关在门外。
+ */
+check('包清单的 DSH 范围两处一致', () => {
+  assert.equal(manifest.engines?.dsh, manifest.dsh?.compatibility?.dsh);
+});
+
+check('DSH 兼容范围按 0.2 版本线声明', () => {
+  assert.equal(manifest.engines?.dsh, '>=0.2.0-rc.2 <0.3.0-0');
+});
+
+check('dshReleases 只记合法状态', () => {
+  const releases = manifest.dsh?.compatibility?.dshReleases ?? {};
+  const versions = Object.keys(releases);
+  assert.ok(versions.length > 0, 'dshReleases 不能为空');
+  for (const version of versions) {
+    assert.match(version, /^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/, `版本号格式不对：${version}`);
+    assert.ok(
+      ['compatible', 'unknown', 'incompatible'].includes(releases[version]),
+      `状态非法：${version} = ${releases[version]}`,
+    );
+  }
+});
+
+check('README 兼容表与 package.json 同源', () => {
+  const readme = fs.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const result = checkLocal(manifest, readme);
+  assert.deepEqual(result.errors, []);
+});
+
+check('市场元数据声明 web / desktop 与桌面手动步骤', () => {
+  assert.deepEqual([...(manifest.dsh?.marketplace?.profiles ?? [])].sort(), ['desktop', 'web']);
+  assert.equal(manifest.dsh?.marketplace?.requiresBuildApproval, false);
+  assert.equal(manifest.dsh?.marketplace?.requiresRestart, true);
+  assert.equal(manifest.dsh?.marketplace?.manualSteps, true);
+});
+
+check('权限声明覆盖 git 且无外发网络', () => {
+  assert.equal(manifest.dsh?.permissions?.network, 'none');
+  assert.equal(manifest.dsh?.permissions?.commands, 'git');
+  assert.equal(manifest.dsh?.permissions?.credentials?.length, 0);
+  assert.equal(manifest.dsh?.permissions?.externalServices?.length, 0);
+});
 
 let failed = 0;
 for (const [state, label, detail] of checks) {
