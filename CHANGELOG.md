@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+- 暂无。
+
+## [0.6.8] - 2026-10-31
+
 ### Added
 
 - 新增 GitHub Pages 落地页：安装命令、画像看点、证据 / 版本 / 审计说明与 GitHub / npm / Discussions 入口。
@@ -16,6 +20,7 @@
 
 - 修正 DSH STORE 契约：入口 ID 改为 `dsh-memory-portrait`；DSH 兼容范围按 0.2 版本线声明为 `>=0.2.0-rc.2 <0.3.0-0`，逐版本测试结论记在 `dsh.compatibility.dshReleases`（`0.2.1-rc.3` / `0.2.1-rc.5` compatible，`0.2.1-rc.4` / `0.2.2-alpha.2` unknown）。
 - 安装范围明确为 **web / 桌面**；headless / TUI 尚未做端到端验证，暂不声明（host 半不依赖 `webServer`，但本轮 headless profile 缺模型凭据，无法完成实测）。
+- 0.6.8 已发布到 npmjs，安装命令不变。
 
 ### Fixed
 
