@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory-portrait?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory-portrait/releases/latest)
 [![npm](https://img.shields.io/npm/v/@bangbang-03/dsh-memory?color=4d6bfe&label=npm)](https://www.npmjs.com/package/@bangbang-03/dsh-memory)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory-portrait?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-591%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
+[![Tests](https://img.shields.io/badge/tests-595%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
 
 **DSH 的记忆画像：不是记住更多，而是让你看见它怎么理解你。**<br>
 **Long-term memory for DeepSeek Harness, with a portrait you can inspect.**
@@ -155,6 +155,7 @@ Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.3.0-0`。范围按 **0
 | `journalDays` | `14` | 画像重写时读取最近多少天的日志作为原料（1–90） |
 | `turnRecall` | `true` | 轮末按当轮内容召回相关记忆进下一轮 |
 | `turnRecallLimit` | `3` | 每轮召回条数（1–10） |
+| `turnRecallMaxChars` | `800` | 轮末召回块总字符上限（200–4000），超出的条目不注入 |
 | `sectionOrder` | `550` | 注入段落在系统提示里的位置 |
 | `autoCapture` | `false` | 轮次结束自动提炼 |
 | `autoDreamDays` | `7` | 启动整理：启动时与轮末检查当前（最近使用的）工作区，距上次（自动或手动）整理满 N 天就在后台整理一次；`0` 关闭（0–365）。没有常驻定时器 |
@@ -166,7 +167,7 @@ Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.3.0-0`。范围按 **0
 | `captureCooldownMs` | `60000` | 两次提炼的最小间隔 |
 | `minConfidence` | `0.4` | 提炼结果的最低置信度 |
 | `maxPerTurn` | `5` | 每次最多落库条数 |
-| `maxTranscriptChars` | `6000` | 送给模型的对白摘录上限 |
+| `maxTranscriptChars` | `4000` | 送给模型的对白摘录上限 |
 | `dedupe` | `true` | 保存时合并相似记忆 |
 | `qualityGate` | `true` | 质量闸门：自动提炼 / agent 主动写入的低分条目（<30）直接归档，不进简报 |
 | `redactSecrets` | `true` | 写入安全：密钥扫描与脱敏（命中替换为 `[REDACTED:*]` 并记 `redactions`） |
@@ -262,7 +263,7 @@ Node `^22.19.0 || >=24.0.0`；DSH 范围 `>=0.2.0-rc.2 <0.3.0-0`。范围按 **0
 ## 测试
 
 ```powershell
-npm test   # 14 个套件 / 591 项断言
+npm test   # 14 个套件 / 595 项断言
 ```
 
 - 检索：54 条记忆 × 60 条查询硬评测，Recall@5 1.000、MRR@10 0.930（自测口径，见 [评测说明](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/docs/retrieval-eval-2026-10-20.md)）。

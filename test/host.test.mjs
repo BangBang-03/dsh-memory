@@ -50,6 +50,8 @@ check('Config 解析空对象得到默认值', () => {
   assert.equal(value.autoCapture, false);
   assert.equal(value.minConfidence, 0.4);
   assert.equal(value.maxPerTurn, 5);
+  assert.equal(value.turnRecallMaxChars, 800);
+  assert.equal(value.maxTranscriptChars, 4000);
   assert.equal(value.dedupe, true);
   assert.equal(value.qualityGate, true, '质量闸门默认开');
   assert.equal(value.redactSecrets, true);

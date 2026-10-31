@@ -63,11 +63,11 @@ test('buildDistillInput: 未知工作区显示 (unknown)', () => {
   assert.ok(buildDistillInput({}).includes('(unknown)'));
 });
 
-test('buildDistillInput: 已有标题超过 60 条被截断', () => {
+test('buildDistillInput: 已有标题超过 24 条被截断', () => {
   const titles = Array.from({ length: 100 }, (_, i) => `t${i}`);
   const input = buildDistillInput({ workspace: 'X', transcript: '[]', existingTitles: titles });
-  assert.ok(input.includes('- t59'));
-  assert.ok(!input.includes('- t60'));
+  assert.ok(input.includes('- t23'));
+  assert.ok(!input.includes('- t24'));
 });
 
 /* ---------------- extractJson ---------------- */
@@ -328,6 +328,16 @@ test('buildDistillInput：existingRecords 带 id，supersede 只在真矛盾时�
   // 兼容旧的 existingTitles 入参。
   const legacy = buildDistillInput({ workspace: 'C:\\x', transcript: '[]', existingTitles: ['旧记忆'] });
   assert.match(legacy, /旧记忆/);
+});
+
+test('buildDistillInput：已有记忆最多 24 条，控制输入 token', () => {
+  const existingRecords = Array.from({ length: 30 }, (_, index) => ({
+    id: `mem_${index}`,
+    title: `旧记忆 ${index}`,
+  }));
+  const input = buildDistillInput({ workspace: 'C:\\x', transcript: '[]', existingRecords });
+  const lines = input.split('\n').filter((line) => line.startsWith('- '));
+  assert.equal(lines.length, 24);
 });
 
 /* ---------------- 结果 ---------------- */

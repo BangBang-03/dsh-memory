@@ -11,7 +11,7 @@
 
 [![Release](https://img.shields.io/github/v/release/BangBang-03/dsh-memory-portrait?color=4d6bfe&label=release)](https://github.com/BangBang-03/dsh-memory-portrait/releases/latest)
 [![License](https://img.shields.io/github/license/BangBang-03/dsh-memory-portrait?color=4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait/blob/main/LICENSE)
-[![Tests](https://img.shields.io/badge/tests-591%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
+[![Tests](https://img.shields.io/badge/tests-595%20passed-4d6bfe)](https://github.com/BangBang-03/dsh-memory-portrait#测试)
 
 DSH 的**工作区长期记忆**插件。对标 Qoder / WorkBuddy / ZCode 的记忆交互：记忆以当前工作区为单位落库，
 会话开始时把最重要的几条以**索引**形式注入系统提示（一行一条，正文按需用 `memory` 工具取，省 token），
@@ -193,10 +193,11 @@ JWT / 私钥 / `Bearer` / `password: …` 赋值 / 带凭据的数据库 URI）�
    保存时先做一次相似度探测，超过 0.72 就合并进已有那条（`dedupe` 可关）；带 `supersedes` 时走版本链；
    `related` 把同主题的记忆串起来（允许悬空）；`keywords` 提升检索命中。
 3. **轮末相关召回**（`turnRecall`，默认开）。监听 `session/event` 的 `turn/end`，拿当轮最后一条用户消息
-   做一次本地打分检索，命中的记忆（排除已在简报与上轮已召回的）下一轮以「相关召回」块注入，并计一次使用。
-   纯本地计算，不花模型 token；`turnRecallLimit` 控制每轮条数。
+   做一次本地打分检索，命中的记忆（排除已在简报与本会话已召回过的）下一轮以「相关召回」块注入，并计一次使用。
+   纯本地计算，不花模型 token；`turnRecallLimit` 控制每轮条数，`turnRecallMaxChars` 控制整块字符上限。
 4. **轮次结束自动提炼**（`autoCapture`，默认关）。把最近一段对话交给同一路由的模型归纳成结构化记忆，
-   按 `minConfidence` 过滤。`captureMode: direct`（默认）直接落库；`captureMode: draft` 先落草稿进
+   按 `minConfidence` 过滤。续跑发言（「继续 / 好的」）跳过；上一次 0 候选后退避 5 分钟再试；
+   已有记忆只带最近 24 条，对白摘录默认 4000 字。`captureMode: direct`（默认）直接落库；`captureMode: draft` 先落草稿进
    **审批队列**，面板批准（可顺手改）后才生效——草稿若挂着 `supersedes`，批准即兑现版本链。
    刻意**不**监听 `agent/turn-stopping` —— 那个事件是串行 await 的，长活在它里面会拖住轮次收尾。
    打开 DSH 后与每轮结束时都会按 `autoDreamDays`（默认 7 天，0 = 关）检查一次到期，满了就在后台跑一次 Dream
@@ -302,7 +303,7 @@ pwsh -File uninstall.ps1 -PurgeStorage   # 连 ~/.dsh/storages/dsh-memory 一起
 ```powershell
 git checkout lab                       # 默认分支；平时只在这里动
 # …改代码…
-node test/run-all.mjs                  # 本机跑一遍：14 个套件 591 条断言
+node test/run-all.mjs                  # 本机跑一遍：14 个套件 595 条断言
 git add <改动的文件>; git commit -m "feat: …"   # 不要用 git add -A（.probe/ 是本地材料）
 
 $out = node tools/push.mjs --branch lab; $out   # 输出 base = 上一版在本地的对应提交
@@ -483,6 +484,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `journalDays` | `14` | 画像重写时读取最近多少天的日志作为原料（1–90） |
 | `turnRecall` | `true` | 轮末按当轮内容召回相关记忆进下一轮 |
 | `turnRecallLimit` | `3` | 每轮召回条数（1–10） |
+| `turnRecallMaxChars` | `800` | 轮末召回块总字符上限（200–4000），超出的条目不注入 |
 | `sectionOrder` | `550` | 注入段落在系统提示里的位置 |
 | `autoCapture` | `false` | 轮次结束自动提炼 |
 | `autoDreamDays` | `7` | 启动整理：启动时与轮末检查当前（最近使用的）工作区，距上次（自动或手动）整理满 N 天就在后台整理一次；`0` 关闭（0–365）。没有常驻定时器 |
@@ -494,7 +496,7 @@ obsidian-second-brain 的「folder 定类型、tag 定检索、type 定实体」
 | `captureCooldownMs` | `60000` | 两次提炼的最小间隔 |
 | `minConfidence` | `0.4` | 提炼结果的最低置信度 |
 | `maxPerTurn` | `5` | 每次最多落库条数 |
-| `maxTranscriptChars` | `6000` | 送给模型的对白摘录上限 |
+| `maxTranscriptChars` | `4000` | 送给模型的对白摘录上限 |
 | `dedupe` | `true` | 保存时合并相似记忆 |
 | `qualityGate` | `true` | 质量闸门：自动提炼 / agent 主动写入的低分条目（<30）直接归档，不进简报 |
 | `redactSecrets` | `true` | 写入安全：密钥扫描与脱敏（命中替换为 `[REDACTED:*]` 并记 `redactions`） |
@@ -665,7 +667,7 @@ cd <克隆下来的 dsh-memory 目录>
 npm test          # 或 node test/run-all.mjs
 ```
 
-14 个套件、591 项（各套件明细数字可能滞后，以 `npm test` 输出为准）：
+14 个套件、595 项（各套件明细数字可能滞后，以 `npm test` 输出为准）：
 
 - `store` 150 项 —— 工作区分库、去重合并、检索打分（带 query 只返回真命中）、镜像（含真在工作区落盘 / 关开关撤回 /
   工作区不存在时不造目录）、导入导出、并发写；v0.3.0：版本链 supersede/rollback、user 类别强制全局与跨库迁移、

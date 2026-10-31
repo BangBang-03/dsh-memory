@@ -693,7 +693,7 @@ await test('轮次结束的自动提炼：对话太短就直接跳过，不烧 t
     captureCooldownMs: 0,
   });
   messages.length = 0;
-  messages.push({ role: 'user', content: [{ type: 'text', text: '嗯' }] });
+  messages.push({ role: 'user', content: [{ type: 'text', text: '今天天气' }] });
 
   const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
   onEvent(session, { type: 'turn/end' });
@@ -706,6 +706,56 @@ await test('轮次结束的自动提炼：对话太短就直接跳过，不烧 t
   assert.equal(seen.length, 0, '太短就不该调用 LLM');
   const state = await callRoute(route, { url: `/memory/api/state?workspace=${encodeURIComponent(workspace)}` });
   assert.equal(state.body.captures[0].reason, 'too_short');
+});
+
+await test('轮次结束的自动提炼：续跑发言不触发，白跑一次都不给', async () => {
+  const seen = [];
+  const { calls, route, session, messages } = activate({
+    services: { llm: fakeLlm(DISTILL_REPLY, seen) },
+    autoCapture: true,
+    captureCooldownMs: 0,
+    autoCaptureMinChars: 0,
+  });
+  messages.length = 0;
+  messages.push({ role: 'user', content: [{ type: 'text', text: '继续' }] });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+
+  onEvent(session, { type: 'turn/end' });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(seen.length, 0, '续跑发言不该调用模型');
+  const state = await callRoute(route, { url: `/memory/api/state?workspace=${encodeURIComponent(workspace)}` });
+  assert.equal(state.body.captures.length, 0, '连一条提炼日志都不该产生');
+});
+
+await test('轮次结束的自动提炼：0 候选后退避，下一轮不立刻再调', async () => {
+  const seen = [];
+  const { calls, route, session, messages } = activate({
+    services: { llm: fakeLlm('[]', seen) },
+    autoCapture: true,
+    captureCooldownMs: 0,
+    autoCaptureMinChars: 0,
+  });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  const q = `?workspace=${encodeURIComponent(workspace)}`;
+
+  onEvent(session, { type: 'turn/end' });
+  const first = await waitFor(async () => {
+    const state = await callRoute(route, { url: `/memory/api/state${q}` });
+    return state.body.captures.some((entry) => entry.candidates === 0);
+  });
+  assert.ok(first, '第一次提炼应真的调用模型并记 0 候选');
+  assert.equal(seen.length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  // 换一段内容再触发：冷却为 0，但 0 候选退避应挡住第二次调用。
+  messages.length = 0;
+  messages.push({
+    role: 'user',
+    content: [{ type: 'text', text: '这段对话里有没有值得长期记住的决策或约定？请检查一下。' }],
+  });
+  onEvent(session, { type: 'turn/end' });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(seen.length, 1, '0 候选后下一轮不该立刻再调模型');
 });
 
 await test('轮次结束的自动提炼：LLM 卡住时轮次收尾照样立刻返回', () => {
@@ -1073,6 +1123,71 @@ await test('轮末召回改走尾部注入：系统提示里没有召回，agent
   });
   assert.equal(third.messages.length, 1, '连续两轮不该重复召回同一条');
   assert.doesNotMatch(calls.sections[0].text({ agent: { session } }), /与当前话题相关的召回/);
+
+  // 中间隔一个无关轮，再回到同一话题：本会话已经注入过的记忆仍不重复占位。
+  session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '今天天气怎么样' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '晴' }] },
+  ];
+  onEvent(session, { type: 'turn/end' });
+  const fourth = await runPreStep(calls, {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '那出门要不要带伞' }], source: { kind: 'user' } }],
+    turn: 4,
+    step: 1,
+  });
+  assert.equal(fourth.messages.length, 1, '无关轮不该带召回');
+
+  session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '构建命令再跑一次' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '好' }] },
+  ];
+  onEvent(session, { type: 'turn/end' });
+  const fifth = await runPreStep(calls, {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '构建结果呢' }], source: { kind: 'user' } }],
+    turn: 5,
+    step: 1,
+  });
+  assert.equal(fifth.messages.length, 1, '本会话已召回过的记忆不该在隔轮后重复注入');
+});
+
+await test('轮末召回：总字符上限 500，放不下的条目不注入', async () => {
+  const { calls, tool, exec, session } = activate({
+    briefing: false,
+    dedupe: false,
+    turnRecallLimit: 3,
+    turnRecallMaxChars: 500,
+  });
+  const onEvent = calls.events.find(([name]) => name === 'session/event')[1];
+  calls.events.find(([name]) => name === 'session/created')[1](session);
+  for (let index = 0; index < 3; index += 1) {
+    await tool.execute(
+      {
+        action: 'save',
+        title: `构建约定 ${index}`,
+        content: `构建命令是 pnpm build。第 ${index} 条细节：${'不要跳过客户端构建。'.repeat(20)}`,
+        category: 'convention',
+      },
+      exec,
+    );
+  }
+  session.deriveMessages = () => [
+    { role: 'user', content: [{ type: 'text', text: '构建命令怎么跑，pnpm build 吗' }] },
+    { role: 'assistant', content: [{ type: 'text', text: '是' }] },
+  ];
+  onEvent(session, { type: 'turn/end' });
+
+  const entered = await runPreStep(calls, {
+    agent: { session },
+    messages: [{ role: 'user', content: [{ type: 'text', text: '构建产物在哪' }], source: { kind: 'user' } }],
+    turn: 2,
+    step: 1,
+  });
+  assert.equal(entered.messages.length, 2, '应注入一条召回消息');
+  const tailText = entered.messages[1].content.map((block) => block.text).join('');
+  assert.ok(tailText.includes('构建约定'), '至少保留一条命中');
+  assert.ok(tailText.length <= 500, `召回块应受 500 字符上限约束，实际 ${tailText.length}`);
 });
 
 await test('门控：autoInject=false 只停注入、工具照常；停用工作区连召回都不排', async () => {
